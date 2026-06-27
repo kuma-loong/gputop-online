@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GPU Top Online</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark"><i data-lucide="server"></i></span>
+          <div>
+            <h1>GPU Top Online</h1>
+            <p id="nodeLine">waiting for snapshot</p>
+          </div>
+        </div>
+        <div class="status-cluster">
+          <span id="liveState" class="live-pill is-pending">
+            <span></span>
+            connecting
+          </span>
+          <button id="pauseButton" class="icon-button" type="button" aria-label="Pause stream" title="Pause stream">
+            <i data-lucide="pause"></i>
+          </button>
+          <button id="refreshButton" class="icon-button" type="button" aria-label="Refresh snapshot" title="Refresh snapshot">
+            <i data-lucide="refresh-cw"></i>
+          </button>
+        </div>
+      </header>
+
+      <main class="shell">
+        <section class="summary-grid" id="summaryGrid"></section>
+        <section class="fabric-band" id="fabricBand"></section>
+        <section class="gpu-grid" id="gpuGrid"></section>
+        <section class="process-section">
+          <div class="section-head">
+            <h2>Processes</h2>
+            <span id="processMeta"></span>
+          </div>
+          <div class="process-table-wrap">
+            <table class="process-table">
+              <thead>
+                <tr>
+                  <th>GPU</th>
+                  <th>User</th>
+                  <th>PID</th>
+                  <th>Name</th>
+                  <th>Memory</th>
+                  <th>Runtime</th>
+                  <th>Type</th>
+                </tr>
+              </thead>
+              <tbody id="processRows">
+                <tr>
+                  <td colspan="7" class="empty">waiting for processes</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
