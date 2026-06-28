@@ -269,28 +269,54 @@ button {
   background: var(--green);
 }
 
-.tone-cyan .metric-icon,
+.tone-green .metric-icon {
+  border-color: rgba(49, 208, 127, 0.35);
+  color: var(--green);
+  background: rgba(49, 208, 127, 0.1);
+}
+
+.tone-cyan .metric-icon {
+  border-color: rgba(68, 199, 216, 0.35);
+  color: var(--cyan);
+  background: rgba(68, 199, 216, 0.1);
+}
+
 .tone-cyan .bar-track span,
 .tone-cyan .metric-rail span {
   color: var(--cyan);
   background: var(--cyan);
 }
 
-.tone-amber .metric-icon,
+.tone-amber .metric-icon {
+  border-color: rgba(245, 190, 69, 0.4);
+  color: var(--amber);
+  background: rgba(245, 190, 69, 0.1);
+}
+
 .tone-amber .bar-track span,
 .tone-amber .metric-rail span {
   color: var(--amber);
   background: var(--amber);
 }
 
-.tone-red .metric-icon,
+.tone-red .metric-icon {
+  border-color: rgba(255, 97, 89, 0.4);
+  color: var(--red);
+  background: rgba(255, 97, 89, 0.1);
+}
+
 .tone-red .bar-track span,
 .tone-red .metric-rail span {
   color: var(--red);
   background: var(--red);
 }
 
-.tone-violet .metric-icon,
+.tone-violet .metric-icon {
+  border-color: rgba(167, 131, 255, 0.4);
+  color: var(--violet);
+  background: rgba(167, 131, 255, 0.1);
+}
+
 .tone-violet .bar-track span,
 .tone-violet .metric-rail span {
   color: var(--violet);
