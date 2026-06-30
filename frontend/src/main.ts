@@ -138,11 +138,14 @@ type Settings = {
   process_interval: number;
 };
 
+type Route = { kind: "overview" } | { kind: "node"; nodeId: string };
+
 const DEFAULT_REFRESH_INTERVALS = [0.5, 1, 2, 5];
 
 const summaryGrid = mustGet<HTMLElement>("summaryGrid");
 const gpuGrid = mustGet<HTMLElement>("gpuGrid");
 const fabricBand = mustGet<HTMLElement>("fabricBand");
+const processSection = mustGet<HTMLElement>("processSection");
 const processRows = mustGet<HTMLElement>("processRows");
 const processMeta = mustGet<HTMLElement>("processMeta");
 const liveState = mustGet<HTMLElement>("liveState");
@@ -184,6 +187,7 @@ refreshControl.addEventListener("click", (event) => {
 });
 
 renderRefreshControl(DEFAULT_REFRESH_INTERVALS, null);
+normalizeInitialRoute();
 fetchSettings();
 connect();
 fetchSnapshot();
@@ -195,6 +199,21 @@ function mustGet<T extends HTMLElement>(id: string): T {
     throw new Error(`Missing element: ${id}`);
   }
   return element as T;
+}
+
+function normalizeInitialRoute() {
+  if (window.location.pathname === "/") {
+    window.history.replaceState(null, "", "/overview");
+  }
+}
+
+function currentRoute(): Route {
+  const path = window.location.pathname.replace(/\/+$/, "") || "/overview";
+  if (path.startsWith("/nodes/")) {
+    const encoded = path.slice("/nodes/".length);
+    return { kind: "node", nodeId: decodeURIComponent(encoded) };
+  }
+  return { kind: "overview" };
 }
 
 function connect() {
@@ -279,11 +298,25 @@ async function setRefreshInterval(interval: number) {
 
 function render(snapshot: ClusterSnapshot) {
   syncRefreshControl(clusterRefreshInterval(snapshot));
-  renderHeader(snapshot);
-  renderSummary(snapshot);
-  renderFabric(snapshot);
-  renderGpuGrid(snapshot);
-  renderProcesses(snapshot);
+  const route = currentRoute();
+  const selectedNode = route.kind === "node" ? findNode(snapshot, route.nodeId) : null;
+  renderHeader(snapshot, route, selectedNode);
+  if (route.kind === "overview") {
+    summaryGrid.hidden = false;
+    fabricBand.hidden = false;
+    gpuGrid.hidden = true;
+    processSection.hidden = true;
+    renderSummary(snapshot);
+    renderFabric(snapshot);
+  } else {
+    summaryGrid.hidden = false;
+    fabricBand.hidden = true;
+    gpuGrid.hidden = false;
+    processSection.hidden = false;
+    renderNodeSummary(route.nodeId, selectedNode);
+    renderGpuGrid(route.nodeId, selectedNode);
+    renderProcesses(route.nodeId, selectedNode);
+  }
   createIcons({ icons: iconSet });
 }
 
@@ -318,11 +351,17 @@ function syncRefreshControl(interval: number | null | undefined) {
   }
 }
 
-function renderHeader(snapshot: ClusterSnapshot) {
+function renderHeader(snapshot: ClusterSnapshot, route: Route, selectedNode: NodeSnapshot | null) {
   const totals = snapshot.totals;
   const latency = maxClusterLatency(snapshot);
   const latencyText = latency === null ? "latency n/a" : `${latency.toFixed(0)} ms max`;
-  nodeLine.textContent = `${totals.node_count} nodes · ${totals.online_node_count} online · ${totals.gpu_count} GPUs · ${latencyText} · seq ${snapshot.seq}`;
+  if (route.kind === "node") {
+    nodeLine.textContent = selectedNode
+      ? `${selectedNode.node_id} · ${selectedNode.status} · ${selectedNode.totals.gpu_count} GPUs · ${fmtLatency(selectedNode)} · seq ${selectedNode.seq}`
+      : `${route.nodeId} · node not found · ${totals.node_count} nodes`;
+  } else {
+    nodeLine.textContent = `${totals.node_count} nodes · ${totals.online_node_count} online · ${totals.gpu_count} GPUs · ${latencyText} · seq ${snapshot.seq}`;
+  }
   setLiveState(paused ? "paused" : snapshot.ok ? "live" : totals.node_count ? "error" : "connecting");
 }
 
@@ -337,26 +376,51 @@ function renderSummary(snapshot: ClusterSnapshot) {
   ].join("");
 }
 
+function renderNodeSummary(nodeId: string, node: NodeSnapshot | null) {
+  if (!node) {
+    summaryGrid.innerHTML = [
+      metricCard("server", "Node", nodeId, "not found", 0, "red"),
+      metricCard("activity", "GPU Avg", "n/a", "0 GPUs", 0, "cyan"),
+      metricCard("database", "HBM Used", "n/a", "n/a", 0, "violet"),
+      metricCard("zap", "Power", "n/a", "n/a", 0, "amber"),
+      metricCard("users", "Tasks", "0", "no active tasks", 0, "red"),
+    ].join("");
+    return;
+  }
+
+  const totals = node.totals;
+  summaryGrid.innerHTML = [
+    metricCard("server", "Node", node.node_id, `${node.status} · ${node.hostname}`, node.status === "online" ? 100 : 0, node.status === "online" ? "green" : "red"),
+    metricCard("activity", "GPU Avg", fmtPct(totals.avg_gpu_utilization), `${totals.gpu_count} GPUs`, totals.avg_gpu_utilization, "cyan"),
+    metricCard("database", "HBM Used", `${fmtGiB(totals.memory_used_mb)} / ${fmtGiB(totals.memory_total_mb)}`, fmtPct(totals.avg_memory_utilization), totals.avg_memory_utilization, "violet"),
+    metricCard("zap", "Power", `${totals.power_watts.toFixed(0)} W / ${totals.power_limit_watts.toFixed(0)} W`, totals.power_limit_watts ? fmtPct((totals.power_watts / totals.power_limit_watts) * 100) : "n/a", totals.power_limit_watts ? (totals.power_watts / totals.power_limit_watts) * 100 : 0, "amber"),
+    metricCard("users", "Tasks", `${totals.active_processes}`, `max ${totals.max_temperature_c}°C`, Math.min(100, (totals.active_processes / Math.max(1, totals.gpu_count * 4)) * 100), "red"),
+  ].join("");
+}
+
 function renderFabric(snapshot: ClusterSnapshot) {
-  const nodeChips = snapshot.nodes
+  const nodeCards = snapshot.nodes
     .map(
       (node) => `
-        <div class="node-chip is-${escapeAttr(node.status)}" title="${escapeAttr(node.error || node.hostname)}">
-          <span>${escapeHtml(node.node_id)}</span>
-          <strong>${escapeHtml(node.status)}</strong>
-          <small>${node.totals.gpu_count} GPUs · ${fmtLatency(node)}</small>
-        </div>
-      `,
-    )
-    .join("");
-  const gpuChips = flattenGpus(snapshot)
-    .map(
-      ({ node, gpu }) => `
-        <div class="fabric-chip ${statusClass(gpu.utilization_gpu)}" title="${escapeAttr(node.node_id)} GPU${gpu.index}">
-          <span>${escapeHtml(node.node_id)} · GPU${gpu.index}</span>
-          <strong>${Math.round(gpu.utilization_gpu)}%</strong>
-          <small>${fmtGiB(gpu.memory_used_mb)}</small>
-        </div>
+        <a
+          class="fabric-node-card is-${escapeAttr(node.status)}"
+          href="/nodes/${encodeURIComponent(node.node_id)}"
+          title="${escapeAttr(node.error || node.hostname)}"
+        >
+          <div class="fabric-node-head">
+            <div>
+              <span>${escapeHtml(node.node_id)}</span>
+              <strong>${escapeHtml(node.hostname)}</strong>
+            </div>
+            <em>${escapeHtml(node.status)}</em>
+          </div>
+          <div class="fabric-node-meta">
+            ${node.totals.gpu_count} GPUs · ${fmtPct(node.totals.avg_gpu_utilization)} avg · ${fmtLatency(node)}
+          </div>
+          <div class="fabric-node-gpus">
+            ${node.gpus.map((gpu) => fabricGpuChip(node, gpu)).join("") || `<span class="fabric-empty">no GPUs</span>`}
+          </div>
+        </a>
       `,
     )
     .join("");
@@ -365,22 +429,32 @@ function renderFabric(snapshot: ClusterSnapshot) {
       <span>Cluster fabric</span>
       <strong>${escapeHtml(summarizeCluster(snapshot))}</strong>
     </div>
-    <div class="fabric-stack">
-      <div class="node-grid">${nodeChips || `<div class="empty-panel">no nodes</div>`}</div>
-      <div class="fabric-grid">${gpuChips}</div>
+    <div class="fabric-node-grid">${nodeCards || `<div class="empty-panel">no nodes</div>`}</div>
+  `;
+}
+
+function fabricGpuChip(node: NodeSnapshot, gpu: GpuInfo) {
+  return `
+    <div class="fabric-chip ${statusClass(gpu.utilization_gpu)}" title="${escapeAttr(node.node_id)} GPU${gpu.index}">
+      <span>GPU${gpu.index}</span>
+      <strong>${Math.round(gpu.utilization_gpu)}%</strong>
+      <small>${fmtGiB(gpu.memory_used_mb)}</small>
     </div>
   `;
 }
 
-function renderGpuGrid(snapshot: ClusterSnapshot) {
-  const items = flattenGpus(snapshot);
+function renderGpuGrid(nodeId: string, node: NodeSnapshot | null) {
+  if (!node) {
+    gpuGrid.innerHTML = `<div class="empty-panel">Node ${escapeHtml(nodeId)} not found</div>`;
+    return;
+  }
+  const items = node.gpus.map((gpu) => ({ node, gpu }));
   if (!items.length) {
-    const error = snapshot.nodes.find((node) => node.error)?.error;
-    gpuGrid.innerHTML = `<div class="empty-panel">${escapeHtml(error || "No GPU snapshot available")}</div>`;
+    gpuGrid.innerHTML = `<div class="empty-panel">${escapeHtml(node.error || "No GPU snapshot available")}</div>`;
     return;
   }
   gpuGrid.innerHTML = items
-    .map(({ node, gpu }) => gpuCard(node, gpu, snapshot.history[gpu.gpu_id || `${node.node_id}:${gpu.uuid}`] || {}))
+    .map(({ node, gpu }) => gpuCard(node, gpu, node.history[gpu.gpu_id || `${node.node_id}:${gpu.uuid}`] || {}))
     .join("");
 }
 
@@ -433,7 +507,7 @@ function gpuCard(node: NodeSnapshot, gpu: GpuInfo, history: Record<string, numbe
   `;
 }
 
-function renderProcesses(snapshot: ClusterSnapshot) {
+function renderProcesses(nodeId: string, node: NodeSnapshot | null) {
   type Row = {
     node: string;
     gpu: number;
@@ -447,7 +521,7 @@ function renderProcesses(snapshot: ClusterSnapshot) {
   };
 
   const rows: Row[] = [];
-  for (const node of snapshot.nodes) {
+  if (node) {
     for (const gpu of node.gpus) {
       for (const process of gpu.processes || []) {
         rows.push({
@@ -479,7 +553,7 @@ function renderProcesses(snapshot: ClusterSnapshot) {
   }
 
   rows.sort((a, b) => a.node.localeCompare(b.node) || a.gpu - b.gpu || b.memory - a.memory || (b.runtime || 0) - (a.runtime || 0));
-  processMeta.textContent = `${rows.length} active`;
+  processMeta.textContent = `${node?.node_id || nodeId} · ${rows.length} active`;
   if (!rows.length) {
     processRows.innerHTML = `<tr><td colspan="8" class="empty">no active GPU tasks</td></tr>`;
     return;
@@ -552,6 +626,10 @@ function sparkline(values: number[], color: string, max: number) {
 
 function flattenGpus(snapshot: ClusterSnapshot) {
   return snapshot.nodes.flatMap((node) => node.gpus.map((gpu) => ({ node, gpu })));
+}
+
+function findNode(snapshot: ClusterSnapshot, nodeId: string) {
+  return snapshot.nodes.find((node) => node.node_id === nodeId || node.hostname === nodeId) || null;
 }
 
 function clusterRefreshInterval(snapshot: ClusterSnapshot | null) {

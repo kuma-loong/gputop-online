@@ -13,6 +13,7 @@ from .schema import (
     OtherUserMemory,
     cluster_snapshot_from_nodes,
     gpu_global_id,
+    local_hostname,
     node_totals_from_gpus,
     snapshot_to_node_snapshot,
 )
@@ -187,6 +188,7 @@ class ClusterState:
         node = snapshot_to_node_snapshot(
             snapshot,
             node_id=self.local_node_id,
+            hostname=local_hostname(snapshot.hostname),
             received_at=received_at,
             process_interval=process_interval,
         )

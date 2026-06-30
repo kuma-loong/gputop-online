@@ -70,6 +70,25 @@ def test_snapshot_wraps_to_node_snapshot_with_stable_gpu_ids() -> None:
     assert node.totals.memory_used_mb == 10
 
 
+def test_manager_hostname_overrides_local_node_identity(monkeypatch) -> None:
+    monkeypatch.setenv("CONSTELLA_MANAGER_HOSTNAME", "H100")
+    snapshot = Snapshot(
+        ok=True,
+        source="test",
+        hostname="default-host",
+        timestamp=10.0,
+        elapsed_ms=1.0,
+        seq=7,
+        gpus=[GpuInfo(index=0, uuid="GPU-local")],
+    )
+
+    node = snapshot_to_node_snapshot(snapshot)
+
+    assert node.node_id == "H100"
+    assert node.hostname == "H100"
+    assert node.gpus[0].gpu_id == "H100:GPU-local"
+
+
 def test_cluster_aggregation_keeps_same_index_gpus_distinct() -> None:
     left = snapshot_to_node_snapshot(
         Snapshot(

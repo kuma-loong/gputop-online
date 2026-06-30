@@ -283,7 +283,17 @@ def gpu_global_id(node_id: str, gpu: GpuInfo) -> str:
 
 
 def local_node_id(default: str | None = None) -> str:
-    return os.environ.get("CONSTELLA_NODE_ID") or default or socket.gethostname() or "local"
+    return (
+        os.environ.get("CONSTELLA_NODE_ID")
+        or os.environ.get("CONSTELLA_MANAGER_HOSTNAME")
+        or default
+        or socket.gethostname()
+        or "local"
+    )
+
+
+def local_hostname(default: str | None = None) -> str:
+    return os.environ.get("CONSTELLA_MANAGER_HOSTNAME") or default or socket.gethostname() or "local"
 
 
 def node_totals_from_gpus(gpus: list[GpuInfo]) -> NodeTotals:
@@ -315,12 +325,16 @@ def snapshot_to_node_snapshot(
     snapshot: Snapshot,
     *,
     node_id: str | None = None,
+    hostname: str | None = None,
     received_at: float | None = None,
     process_interval: float = 3.0,
     status: str | None = None,
     agent_version: str | None = None,
 ) -> NodeSnapshot:
     resolved_node_id = node_id or local_node_id(snapshot.hostname)
+    resolved_hostname = hostname or (
+        local_hostname(snapshot.hostname) if node_id is None else snapshot.hostname
+    )
     gpus = copy.deepcopy(snapshot.gpus)
     history: dict[str, dict[str, list[float]]] = {}
     for gpu in gpus:
@@ -331,7 +345,7 @@ def snapshot_to_node_snapshot(
 
     return NodeSnapshot(
         node_id=resolved_node_id,
-        hostname=snapshot.hostname,
+        hostname=resolved_hostname,
         seq=snapshot.seq,
         sampled_at=snapshot.timestamp,
         received_at=received_at,

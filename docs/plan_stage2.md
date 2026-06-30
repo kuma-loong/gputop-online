@@ -127,6 +127,7 @@ constella cluster start --nodes nodes.yaml
 节点清单示例：
 
 ```yaml
+manager_hostname: manager-node
 manager_url: ws://manager-host:8765/api/agents/ws
 agent_token_file: run/agent-token
 nodes:
@@ -873,12 +874,13 @@ DB queue 有界，避免数据库慢拖垮 manager。
 推荐页面：
 
 1. Cluster Overview
+   - 路径为 `/overview`。
    - 总节点数、在线节点数、GPU 总数、总显存、总功耗、活跃任务数。
-   - 节点状态矩阵。
-   - GPU 利用率热力图。
+   - Cluster fabric 按节点拆分为独立卡片，每个卡片只展示该节点自己的 GPU 状态。
    - stale/offline 节点提示。
 
 2. Node Detail
+   - 路径为 `/nodes/<node_id>`。
    - 单节点的 GPU 卡片。
    - 节点延迟、agent 状态、驱动版本、CUDA/NVML 版本。
    - 当前进程表。

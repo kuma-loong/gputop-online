@@ -44,6 +44,7 @@ class ClusterConfig:
     refresh_interval: float = 1.0
     process_interval: float = 3.0
     remote_base: str = "$HOME/.constella"
+    manager_hostname: str | None = None
 
 
 @dataclass(slots=True)
@@ -306,10 +307,25 @@ def load_cluster_config(path: Path) -> ClusterConfig:
         manager_url=str(raw["manager_url"]),
         agent_token_file=token_file,
         nodes=[parse_node(item) for item in nodes_raw],
+        manager_hostname=parse_optional_string(raw.get("manager_hostname")),
         refresh_interval=float(raw.get("refresh_interval", 1.0)),
         process_interval=float(raw.get("process_interval", 3.0)),
         remote_base=str(raw.get("remote_base", "$HOME/.constella")),
     )
+
+
+def load_manager_hostname(path: Path) -> str | None:
+    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    if not isinstance(raw, dict):
+        return None
+    return parse_optional_string(raw.get("manager_hostname"))
+
+
+def parse_optional_string(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def parse_node(item: Any) -> ClusterNode:

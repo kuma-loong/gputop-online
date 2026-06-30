@@ -20,6 +20,7 @@ Lightweight realtime NVIDIA GPU monitoring for one server or a small GPU cluster
 - Selectable global refresh rate: 0.5s, 1s, 2s, or 5s with a single shared backend collector.
 - Low overhead: persistent NVML sampler, no per-browser GPU polling, latest state kept in memory.
 - Manager-agent cluster mode: the manager can start remote agents over SSH, while agents stream samples back over WebSocket.
+- Cluster UI routes: `/overview` shows cluster totals and one fabric card per node; `/nodes/<node_id>` shows that node's GPUs and tasks.
 - Process list sampled at a lower cadence by default to reduce `/proc` and driver query jitter.
 - Per-process task details include user, PID, task name, command line hash, GPU memory, runtime, and process start time when the OS allows reading them.
 - `nvidia-smi` fallback when NVML initialization or a sampling call fails.
@@ -55,7 +56,7 @@ ssh -N -L 8765:127.0.0.1:8765 <user>@<server>
 Then open:
 
 ```text
-http://127.0.0.1:8765
+http://127.0.0.1:8765/overview
 ```
 
 ## Cluster Mode
@@ -75,6 +76,8 @@ Create `nodes.yaml` from the example and edit hosts/users:
 ```bash
 cp docs/nodes.example.yaml nodes.yaml
 ```
+
+Set `manager_hostname` to the manager node label you want in the UI. If `CONSTELLA_NODE_ID` is not set, this value also becomes the local manager node id used by `/nodes/<node_id>`.
 
 Start, inspect, and stop remote agents:
 

@@ -12,6 +12,8 @@ PORT="${PORT:-8765}"
 REFRESH="${REFRESH:-1.0}"
 PROCESS_REFRESH="${PROCESS_REFRESH:-3.0}"
 AGENT_TOKEN_FILE="${AGENT_TOKEN_FILE:-}"
+MANAGER_HOSTNAME="${MANAGER_HOSTNAME:-}"
+NODES_CONFIG="${NODES_CONFIG:-nodes.yaml}"
 DB_PATH="${DB_PATH:-}"
 DB_QUEUE_SIZE="${DB_QUEUE_SIZE:-1024}"
 RAW_SNAPSHOT_SECONDS="${RAW_SNAPSHOT_SECONDS:-0}"
@@ -48,8 +50,25 @@ if [[ ! -d frontend/dist ]]; then
   popd >/dev/null
 fi
 
+if [[ -z "$MANAGER_HOSTNAME" && -f "$NODES_CONFIG" ]]; then
+  MANAGER_HOSTNAME="$(
+    PYTHONPATH="$ROOT_DIR/src" "$ROOT_DIR/.venv/bin/python" - "$NODES_CONFIG" <<'PY'
+from pathlib import Path
+import sys
+
+from constella.cluster_control import load_manager_hostname
+
+print(load_manager_hostname(Path(sys.argv[1])) or "")
+PY
+  )"
+fi
+
 if [[ -n "$AGENT_TOKEN_FILE" ]]; then
   export CONSTELLA_AGENT_TOKEN_FILE="$AGENT_TOKEN_FILE"
+fi
+
+if [[ -n "$MANAGER_HOSTNAME" ]]; then
+  export CONSTELLA_MANAGER_HOSTNAME="$MANAGER_HOSTNAME"
 fi
 
 if [[ -n "$DB_PATH" ]]; then

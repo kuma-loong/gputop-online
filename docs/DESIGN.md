@@ -33,7 +33,7 @@ flowchart LR
 5. collector 给快照补充序号、当前刷新间隔和 120 点短历史数据。
 6. 单机 `Snapshot` 被包装为本地 `NodeSnapshot`，远端 agent 直接上报节点样本。
 7. manager 按 `node_id` 维护 latest state，丢弃同节点旧 `seq`，并按本地接收时间标记 stale/offline。
-8. WebSocket 客户端收到 `ClusterSnapshot` 后刷新 KPI、节点矩阵、GPU 卡片、任务表和历史曲线。
+8. WebSocket 客户端收到 `ClusterSnapshot` 后刷新前端路由：`/overview` 只显示集群 KPI 和按节点拆分的 fabric 卡片；`/nodes/<node_id>` 只显示对应节点的 GPU 卡片、任务表和历史曲线。
 
 ## 低开销策略
 
@@ -56,7 +56,7 @@ manager 侧使用当前用户目录、`uv`、`npm` 和 `nohup`。GPU 节点 agen
 
 - `GpuInfo` 增加 `node_id` 和 `gpu_id`；`gpu_id` 默认由 `node_id + gpu uuid` 生成，避免多节点 GPU index 冲突。
 - `GpuProcess` 增加 `task_name`、`exe`、`cmdline_hash`、`process_start_time`、`detail_status`，用于任务视图和 session 统计。
-- `NodeSnapshot` 表示一个节点的最新状态，包含状态、agent 版本、采样/接收时间和节点 totals。
+- `NodeSnapshot` 表示一个节点的最新状态，包含状态、agent 版本、采样/接收时间和节点 totals；管理节点可通过 `nodes.yaml` 顶层 `manager_hostname` 配置显示名。
 - `ClusterSnapshot` 由 manager 生成，包含所有节点、集群 totals 和按 `gpu_id` keyed 的短历史曲线。
 
 ## 可选数据库

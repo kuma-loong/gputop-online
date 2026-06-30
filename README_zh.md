@@ -6,6 +6,7 @@
 
 - 可选全局刷新率：支持 0.5 秒、1 秒、2 秒、5 秒，单个后台 collector 采样，多个浏览器共享快照，避免重复访问 GPU 驱动。
 - 集群 manager-agent 模式：manager 通过 SSH 启动远端 agent，agent 通过 WebSocket 持续回传节点快照。
+- 集群前端路径：`/overview` 展示集群 totals 和按节点拆分的 fabric 卡片，`/nodes/<node_id>` 展示该节点的 GPU 卡片和任务表。
 - 低抖动进程采样：核心 GPU 指标按当前刷新率更新，进程列表默认每 3 秒刷新一次。
 - NVML 优先：直接通过 `ctypes` 调用 `libnvidia-ml.so`，无需 sudo，无需在系统安装 Python 包。
 - `nvidia-smi` 兜底：NVML 初始化失败或权限受限时仍能显示 GPU 基础指标。
@@ -39,7 +40,7 @@ cd Constella
 ssh -N -L 8765:127.0.0.1:8765 <user>@<server>
 ```
 
-然后打开 `http://127.0.0.1:8765`。
+然后打开 `http://127.0.0.1:8765/overview`。
 
 ## 集群模式
 
@@ -58,6 +59,8 @@ AGENT_TOKEN_FILE=run/agent-token ./scripts/service/start.sh
 ```bash
 cp docs/nodes.example.yaml nodes.yaml
 ```
+
+`manager_hostname` 用来配置管理节点在页面上的显示名。未设置 `CONSTELLA_NODE_ID` 时，它也会作为本机 manager 节点的 `/nodes/<node_id>` 节点名。
 
 启动、查看和停止远端 agent：
 

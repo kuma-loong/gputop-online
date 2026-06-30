@@ -10,6 +10,7 @@ from constella.cluster_control import (
     ClusterNode,
     CommandRunner,
     load_cluster_config,
+    load_manager_hostname,
     prepare_agent_runtime,
     render_agent_env,
     render_start_script,
@@ -53,6 +54,7 @@ def test_load_cluster_config_resolves_relative_token_file(tmp_path) -> None:
     nodes_file = tmp_path / "nodes.yaml"
     nodes_file.write_text(
         """
+manager_hostname: H100
 manager_url: ws://manager:8765/api/agents/ws
 agent_token_file: run/agent-token
 refresh_interval: 2.0
@@ -70,9 +72,11 @@ nodes:
 
     assert config.manager_url == "ws://manager:8765/api/agents/ws"
     assert config.agent_token_file == token_file.resolve()
+    assert config.manager_hostname == "H100"
     assert config.refresh_interval == 2.0
     assert config.process_interval == 5.0
     assert config.nodes[0] == ClusterNode(id="gpu-node-01", host="gpu-node-01", user="alice", port=2222)
+    assert load_manager_hostname(nodes_file) == "H100"
 
 
 def test_start_node_writes_token_via_stdin_not_ssh_command(tmp_path) -> None:

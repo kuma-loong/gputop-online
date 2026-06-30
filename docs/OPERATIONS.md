@@ -39,7 +39,7 @@ ssh -N -L 8765:127.0.0.1:8765 <user>@<server>
 浏览器访问：
 
 ```text
-http://127.0.0.1:8765
+http://127.0.0.1:8765/overview
 ```
 
 ## 集群 agent 管理
@@ -64,6 +64,12 @@ cp docs/nodes.example.yaml nodes.yaml
 
 ```text
 ws://manager-host:8765/api/agents/ws
+```
+
+`manager_hostname` 是管理节点在前端中的显示名；未设置 `CONSTELLA_NODE_ID` 时，它也会作为本机 manager 节点名，因此对应详情页为 `/nodes/<manager_hostname>`。也可以用环境变量临时覆盖：
+
+```bash
+MANAGER_HOSTNAME=H100 ./scripts/service/start.sh
 ```
 
 启动、状态、停止：
