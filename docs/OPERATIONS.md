@@ -19,6 +19,13 @@ cd Constella
 HOST=127.0.0.1 PORT=8765 REFRESH=1.0 PROCESS_REFRESH=3.0 ./scripts/start.sh
 ```
 
+集群 manager 可额外配置：
+
+```bash
+AGENT_TOKEN_FILE=run/agent-token ./scripts/start.sh
+DB_PATH=run/constella.db RAW_SNAPSHOT_SECONDS=30 ./scripts/start.sh
+```
+
 日志写入 `logs/constella.log`，PID 写入 `run/constella.pid`。
 
 ## 访问
@@ -34,6 +41,73 @@ ssh -N -L 8765:127.0.0.1:8765 <user>@<server>
 ```text
 http://127.0.0.1:8765
 ```
+
+## 集群 agent 管理
+
+准备 manager agent token：
+
+```bash
+mkdir -p run
+umask 077
+printf '%s\n' 'replace-with-a-random-token' > run/agent-token
+chmod 600 run/agent-token
+AGENT_TOKEN_FILE=run/agent-token ./scripts/start.sh
+```
+
+准备节点清单：
+
+```bash
+cp docs/nodes.example.yaml nodes.yaml
+```
+
+`nodes.yaml` 中的 `manager_url` 必须是 GPU 节点能访问到的 manager WebSocket 地址，例如：
+
+```text
+ws://manager-host:8765/api/agents/ws
+```
+
+启动、状态、停止：
+
+```bash
+./scripts/start_cluster.sh
+./scripts/status_cluster.sh
+./scripts/stop_cluster.sh
+```
+
+重复执行 `start_cluster.sh` 是幂等的：远端 pid 存活时返回 running；pid 过期时清理后重启。
+
+普通用户部署限制：
+
+- 不使用 sudo，不写 `/etc`，不安装 system service。
+- agent 默认写入 `~/.constella/run/agent.pid`、`~/.constella/logs/agent.log`、`~/.constella/run/agent-state.json`。
+- 节点重启后 agent 不保证自动恢复；重新执行 `./scripts/start_cluster.sh` 即可。
+- token 通过 stdin 写入远端 env 文件，不放在 SSH 命令行参数中。
+
+## 可选 SQLite 历史库
+
+启用：
+
+```bash
+DB_PATH=run/constella.db RAW_SNAPSHOT_SECONDS=30 ./scripts/start.sh
+```
+
+维护：
+
+```bash
+./scripts/db_maintenance.sh
+```
+
+可调参数：
+
+```bash
+DB_PATH=run/constella.db \
+ROLLUP_BUCKET_SECONDS=10 \
+RAW_RETENTION_SECONDS=43200 \
+SESSION_STALE_SECONDS=300 \
+./scripts/db_maintenance.sh
+```
+
+数据库写入走有界后台队列。实时面板依赖 manager 内存 latest state，数据库慢或关闭时不影响实时 WebSocket 推送。
 
 ## Cloudflare Tunnel
 
@@ -110,3 +184,16 @@ COUNT=20 ./scripts/bench_probe.sh
 ```
 
 正常情况下 `probe` 的 `source` 为 `nvml`。如果为 `nvidia-smi`，说明 NVML 路径失败但兜底仍可用；查看 `logs/constella.log` 中的警告。
+
+## 验证集群 API
+
+```bash
+curl -s http://127.0.0.1:8765/api/cluster/snapshot
+curl -s http://127.0.0.1:8765/api/history/gpu
+```
+
+未启用数据库时，历史 API 返回：
+
+```json
+{"enabled":false,"items":[]}
+```

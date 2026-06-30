@@ -1,0 +1,12 @@
+manager_url: ws://manager-host:8765/api/agents/ws
+agent_token_file: run/agent-token
+refresh_interval: 1.0
+process_interval: 3.0
+remote_base: $HOME/.constella
+nodes:
+  - id: gpu-node-01
+    host: gpu-node-01
+    user: alice
+  - id: gpu-node-02
+    host: gpu-node-02
+    user: alice

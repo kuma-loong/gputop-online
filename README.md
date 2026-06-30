@@ -11,24 +11,27 @@
 
 </div>
 
-Lightweight realtime NVIDIA GPU monitoring for a single server. The backend reads GPU metrics through NVML first and falls back to `nvidia-smi`; the frontend receives shared collector updates over WebSocket.
+Lightweight realtime NVIDIA GPU monitoring for one server or a small GPU cluster. The backend reads GPU metrics through NVML first and falls back to `nvidia-smi`; in cluster mode, GPU node agents push snapshots back to a manager over WebSocket.
 
 [简体中文](README_zh.md)
 
 ## Features
 
 - Selectable global refresh rate: 0.5s, 1s, 2s, or 5s with a single shared backend collector.
-- Low overhead: persistent NVML sampler, no per-browser GPU polling, no database.
+- Low overhead: persistent NVML sampler, no per-browser GPU polling, latest state kept in memory.
+- Manager-agent cluster mode: the manager can start remote agents over SSH, while agents stream samples back over WebSocket.
 - Process list sampled at a lower cadence by default to reduce `/proc` and driver query jitter.
+- Per-process task details include user, PID, task name, command line hash, GPU memory, runtime, and process start time when the OS allows reading them.
 - `nvidia-smi` fallback when NVML initialization or a sampling call fails.
 - Hardware-agnostic NVIDIA dashboard: GPU utilization, memory, power, temperature, clocks, P-state, ECC, MIG, process memory, process runtime, and short history sparklines.
+- Optional SQLite history sink for GPU metric samples, rollups, process sessions, and process-GPU usage.
 - User-level deployment: no sudo, no system service required.
 - Cloudflare Tunnel friendly: keep the service bound to `127.0.0.1` and expose it through a hostname without opening an inbound server port.
 
 ## Layout
 
 ```text
-src/constella/      Python backend, NVML sampler, nvidia-smi fallback, API/WebSocket
+src/constella/          Python backend, agent, cluster manager, NVML sampler, API/WebSocket
 frontend/               Vite + TypeScript frontend
 scripts/                user-level setup, service, and tunnel management scripts
 docs/                   design and operations notes
@@ -53,6 +56,51 @@ Then open:
 
 ```text
 http://127.0.0.1:8765
+```
+
+## Cluster Mode
+
+Start the manager with an agent token file:
+
+```bash
+mkdir -p run
+umask 077
+printf '%s\n' 'replace-with-a-random-token' > run/agent-token
+chmod 600 run/agent-token
+AGENT_TOKEN_FILE=run/agent-token ./scripts/start.sh
+```
+
+Create `nodes.yaml` from the example and edit hosts/users:
+
+```bash
+cp docs/nodes.example.yaml nodes.yaml
+```
+
+Start, inspect, and stop remote agents:
+
+```bash
+./scripts/start_cluster.sh
+./scripts/status_cluster.sh
+./scripts/stop_cluster.sh
+```
+
+`constella cluster start` uses SSH only for setup/control. The remote agent token is written through stdin into `~/.constella/run/agent.env` with mode `600`; it is not placed on the remote command line.
+
+## Optional History
+
+Enable SQLite history on the manager:
+
+```bash
+DB_PATH=run/constella.db RAW_SNAPSHOT_SECONDS=30 ./scripts/start.sh
+```
+
+Maintenance commands:
+
+```bash
+./scripts/db_maintenance.sh
+uv run constella db rollup --path run/constella.db --bucket-seconds 10
+uv run constella db prune-raw --path run/constella.db
+uv run constella db close-sessions --path run/constella.db
 ```
 
 ## Cloudflare Tunnel
@@ -121,6 +169,10 @@ Security notes:
 ./scripts/stop.sh
 HOST=127.0.0.1 PORT=8765 REFRESH=1.0 PROCESS_REFRESH=3.0 ./scripts/start.sh
 uv run constella probe --pretty
+uv run constella agent
+uv run constella cluster start --nodes nodes.yaml
+uv run constella cluster status --nodes nodes.yaml
+uv run constella cluster stop --nodes nodes.yaml
 COUNT=20 ./scripts/bench_probe.sh
 ```
 
@@ -136,9 +188,15 @@ Tunnel commands:
 
 - `GET /api/health`
 - `GET /api/snapshot`
+- `GET /api/cluster/snapshot`
 - `GET /api/settings`
 - `PATCH /api/settings`
 - `WS /ws/gpu`
+- `WS /ws/cluster`
+- `WS /api/agents/ws`
+- `GET /api/history/gpu`
+- `GET /api/history/tasks`
+- `GET /api/users`
 - `GET /api/docs`
 
 ## Development

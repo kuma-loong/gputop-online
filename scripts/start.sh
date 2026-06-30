@@ -11,6 +11,10 @@ HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8765}"
 REFRESH="${REFRESH:-1.0}"
 PROCESS_REFRESH="${PROCESS_REFRESH:-3.0}"
+AGENT_TOKEN_FILE="${AGENT_TOKEN_FILE:-}"
+DB_PATH="${DB_PATH:-}"
+DB_QUEUE_SIZE="${DB_QUEUE_SIZE:-1024}"
+RAW_SNAPSHOT_SECONDS="${RAW_SNAPSHOT_SECONDS:-0}"
 LOG_DIR="$ROOT_DIR/logs"
 RUN_DIR="$ROOT_DIR/run"
 PID_FILE="$RUN_DIR/constella.pid"
@@ -42,6 +46,16 @@ if [[ ! -d frontend/dist ]]; then
   fi
   npm run build
   popd >/dev/null
+fi
+
+if [[ -n "$AGENT_TOKEN_FILE" ]]; then
+  export CONSTELLA_AGENT_TOKEN_FILE="$AGENT_TOKEN_FILE"
+fi
+
+if [[ -n "$DB_PATH" ]]; then
+  export CONSTELLA_DB_PATH="$DB_PATH"
+  export CONSTELLA_DB_QUEUE_SIZE="$DB_QUEUE_SIZE"
+  export CONSTELLA_RAW_SNAPSHOT_SECONDS="$RAW_SNAPSHOT_SECONDS"
 fi
 
 CMD=(

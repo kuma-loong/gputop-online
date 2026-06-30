@@ -1,7 +1,7 @@
 [project]
 name = "constella"
-version = "0.1.0"
-description = "Lightweight realtime NVIDIA GPU monitoring web service."
+version = "0.2.0"
+description = "Lightweight realtime NVIDIA GPU cluster monitoring web service."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
