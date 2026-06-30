@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from .cluster import ClusterState, parse_agent_hello
 from .collector import SnapshotCollector, snapshot_to_jsonable
+from .db import AsyncDBSink, SQLiteSinkConfig
 from .schema import local_node_id
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -44,11 +45,27 @@ def _agent_authorized(websocket: WebSocket, expected_token: str | None) -> bool:
     return authorization[len(prefix) :] == expected_token
 
 
+def _load_db_sink() -> AsyncDBSink | None:
+    db_path = os.environ.get("CONSTELLA_DB_PATH")
+    if not db_path:
+        return None
+    queue_size = int(os.environ.get("CONSTELLA_DB_QUEUE_SIZE", "1024"))
+    raw_interval = float(os.environ.get("CONSTELLA_RAW_SNAPSHOT_SECONDS", "0"))
+    return AsyncDBSink(
+        SQLiteSinkConfig(
+            path=Path(db_path),
+            queue_size=queue_size,
+            raw_snapshot_interval=raw_interval,
+        )
+    )
+
+
 def create_app(
     refresh_interval: float | None = None,
     collector: SnapshotCollector | None = None,
     cluster_state: ClusterState | None = None,
     agent_token: str | None = None,
+    db_sink: AsyncDBSink | None = None,
 ) -> FastAPI:
     if collector is None:
         interval = (
@@ -61,13 +78,19 @@ def create_app(
     if cluster_state is None:
         cluster_state = ClusterState(local_node_id=local_node_id())
     expected_agent_token = agent_token if agent_token is not None else _load_agent_token()
+    db_sink = db_sink if db_sink is not None else _load_db_sink()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         await collector.start()
+        if db_sink is not None:
+            await db_sink.start()
         app.state.collector = collector
         app.state.cluster_state = cluster_state
+        app.state.db_sink = db_sink
         yield
+        if db_sink is not None:
+            await db_sink.stop()
         await collector.stop()
 
     app = FastAPI(
@@ -99,6 +122,46 @@ def create_app(
             local_snapshot=collector.snapshot,
             local_process_interval=collector.process_interval,
         ).to_dict()
+
+    @app.get("/api/history/gpu")
+    async def gpu_history(
+        node_id: str | None = None,
+        gpu_uuid: str | None = None,
+        since: float | None = None,
+        until: float | None = None,
+        limit: int = 1000,
+    ) -> dict[str, object]:
+        if db_sink is None:
+            return {"enabled": False, "items": []}
+        return {
+            "enabled": True,
+            "items": db_sink.store.query_gpu_history(
+                node_id=node_id,
+                gpu_uuid=gpu_uuid,
+                since=since,
+                until=until,
+                limit=max(1, min(limit, 5000)),
+            ),
+        }
+
+    @app.get("/api/history/tasks")
+    async def task_history(
+        user: str | None = None,
+        status: str | None = None,
+        limit: int = 200,
+    ) -> dict[str, object]:
+        if db_sink is None:
+            return {"enabled": False, "items": []}
+        return {
+            "enabled": True,
+            "items": db_sink.store.query_tasks(user=user, status=status, limit=max(1, min(limit, 1000))),
+        }
+
+    @app.get("/api/users")
+    async def users() -> dict[str, object]:
+        if db_sink is None:
+            return {"enabled": False, "items": []}
+        return {"enabled": True, "items": db_sink.store.query_users()}
 
     @app.get("/api/settings")
     async def settings() -> dict[str, object]:
@@ -166,6 +229,10 @@ def create_app(
                 message_type = message.get("type")
                 if message_type == "sample":
                     accepted = cluster_state.ingest_sample(message)
+                    if accepted and db_sink is not None:
+                        runtime = cluster_state.latest_by_node.get(str(message.get("node_id") or ""))
+                        if runtime is not None:
+                            db_sink.submit_node_snapshot(runtime.snapshot)
                     await websocket.send_json({"type": "ack", "seq": message.get("seq"), "accepted": accepted})
                 elif message_type == "heartbeat":
                     heartbeat_node_id = str(message.get("node_id") or node_id or "")

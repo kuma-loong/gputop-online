@@ -5,6 +5,7 @@ import asyncio
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 import uvicorn
@@ -13,6 +14,7 @@ from . import __version__
 from .agent import AgentConfig, run_agent
 from .cluster_control import ClusterController, format_results, load_cluster_config
 from .collector import validate_refresh_interval
+from .db import RAW_SNAPSHOT_RETENTION_SECONDS, SQLiteStore
 from .nvml import sample_with_fallback
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -53,6 +55,28 @@ def main(argv: list[str] | None = None) -> None:
 
     cluster_stop = cluster_subparsers.add_parser("stop", help="stop remote agents")
     cluster_stop.add_argument("--nodes", type=Path, default=Path("nodes.yaml"))
+
+    db = subparsers.add_parser("db", help="maintain the optional SQLite database")
+    db_subparsers = db.add_subparsers(dest="db_command")
+
+    db_rollup = db_subparsers.add_parser("rollup", help="roll up GPU metric samples")
+    db_rollup.add_argument("--path", type=Path, default=Path("run/constella.db"))
+    db_rollup.add_argument("--bucket-seconds", type=int, default=10)
+
+    db_prune_raw = db_subparsers.add_parser("prune-raw", help="delete expired raw snapshots")
+    db_prune_raw.add_argument("--path", type=Path, default=Path("run/constella.db"))
+    db_prune_raw.add_argument(
+        "--retention-seconds",
+        type=float,
+        default=RAW_SNAPSHOT_RETENTION_SECONDS,
+    )
+
+    db_close_sessions = db_subparsers.add_parser(
+        "close-sessions",
+        help="close long-unseen running process sessions",
+    )
+    db_close_sessions.add_argument("--path", type=Path, default=Path("run/constella.db"))
+    db_close_sessions.add_argument("--stale-seconds", type=float, default=60.0)
 
     args = parser.parse_args(argv)
 
@@ -124,6 +148,31 @@ def main(argv: list[str] | None = None) -> None:
         print(format_results(results))
         if any(not result.ok for result in results):
             sys.exit(1)
+        return
+
+    if args.command == "db":
+        if not args.db_command:
+            db.print_help()
+            return
+        store = SQLiteStore(args.path)
+        store.open()
+        try:
+            if args.db_command == "rollup":
+                count = store.rollup_gpu_metrics(bucket_seconds=args.bucket_seconds)
+                print(f"rolled up {count} GPU buckets")
+            elif args.db_command == "prune-raw":
+                count = store.prune_raw_snapshots(retention_seconds=args.retention_seconds)
+                print(f"deleted {count} raw snapshots")
+            elif args.db_command == "close-sessions":
+                count = store.close_stale_sessions(
+                    now=time.time(),
+                    stale_after_seconds=args.stale_seconds,
+                )
+                print(f"closed {count} process sessions")
+            else:
+                parser.error(f"unknown db command: {args.db_command}")
+        finally:
+            store.close()
         return
 
     parser.print_help()
