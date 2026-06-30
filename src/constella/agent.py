@@ -162,7 +162,7 @@ async def _run_connection(
         sender = asyncio.create_task(_sender_loop(websocket, collector, config, status), name="agent-ws-sender")
         done, pending = await asyncio.wait(
             {receiver, sender},
-            return_when=asyncio.FIRST_EXCEPTION,
+            return_when=asyncio.FIRST_COMPLETED,
         )
         for task in pending:
             task.cancel()

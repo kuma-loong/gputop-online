@@ -39,6 +39,7 @@ class NodeRuntime:
     connected: bool = False
     last_seen_at: float = 0.0
     agent_version: str | None = None
+    connection_id: object | None = None
 
 
 class ClusterState:
@@ -73,7 +74,13 @@ class ClusterState:
             return self._seq
         return self._seq
 
-    def register_hello(self, hello: AgentHello, *, now: float | None = None) -> None:
+    def register_hello(
+        self,
+        hello: AgentHello,
+        *,
+        now: float | None = None,
+        connection_id: object | None = None,
+    ) -> None:
         seen_at = now if now is not None else time.time()
         runtime = self.latest_by_node.get(hello.node_id)
         if runtime is None:
@@ -96,23 +103,34 @@ class ClusterState:
                 connected=True,
                 last_seen_at=seen_at,
                 agent_version=hello.agent_version,
+                connection_id=connection_id,
             )
             self.latest_by_node[hello.node_id] = runtime
         else:
             runtime.hostname = hello.hostname
             runtime.connected = True
             runtime.last_seen_at = seen_at
+            runtime.last_seq = 0
+            runtime.connection_id = connection_id
             runtime.agent_version = hello.agent_version or runtime.agent_version
             runtime.snapshot.hostname = hello.hostname
             runtime.snapshot.agent_version = runtime.agent_version
         self._bump()
 
-    def ingest_sample(self, message: dict[str, Any], *, received_at: float | None = None) -> bool:
+    def ingest_sample(
+        self,
+        message: dict[str, Any],
+        *,
+        received_at: float | None = None,
+        connection_id: object | None = None,
+    ) -> bool:
         node_id = str(message.get("node_id") or "")
         if not node_id:
             raise ValueError("agent sample is missing node_id")
         seq = int(message.get("seq") or 0)
         runtime = self.latest_by_node.get(node_id)
+        if runtime and not self._connection_matches(runtime, connection_id):
+            return False
         if runtime and seq <= runtime.last_seq:
             return False
 
@@ -131,6 +149,7 @@ class ClusterState:
             connected=True,
             last_seen_at=now,
             agent_version=snapshot.agent_version,
+            connection_id=connection_id,
         )
         self._bump()
         return True
@@ -141,6 +160,7 @@ class ClusterState:
         *,
         seq: int | None = None,
         now: float | None = None,
+        connection_id: object | None = None,
     ) -> None:
         runtime = self.latest_by_node.get(node_id)
         if runtime is None:
@@ -148,17 +168,28 @@ class ClusterState:
             self.register_hello(
                 AgentHello(node_id=node_id, hostname=node_id, agent_version=None),
                 now=seen_at,
+                connection_id=connection_id,
             )
             runtime = self.latest_by_node[node_id]
+        if not self._connection_matches(runtime, connection_id):
+            return
         runtime.connected = True
         runtime.last_seen_at = now if now is not None else time.time()
         if seq is not None:
             runtime.last_seq = max(runtime.last_seq, seq)
         self._bump()
 
-    def disconnect(self, node_id: str, *, now: float | None = None) -> None:
+    def disconnect(
+        self,
+        node_id: str,
+        *,
+        now: float | None = None,
+        connection_id: object | None = None,
+    ) -> None:
         runtime = self.latest_by_node.get(node_id)
         if runtime is None:
+            return
+        if not self._connection_matches(runtime, connection_id):
             return
         runtime.connected = False
         runtime.last_seen_at = now if now is not None else runtime.last_seen_at
@@ -226,6 +257,11 @@ class ClusterState:
         if runtime.snapshot.error:
             return "error"
         return "online"
+
+    def _connection_matches(self, runtime: NodeRuntime, connection_id: object | None) -> bool:
+        if connection_id is None or runtime.connection_id is None:
+            return True
+        return connection_id is runtime.connection_id
 
     def _bump(self) -> None:
         self._seq += 1

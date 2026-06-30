@@ -211,11 +211,12 @@ def create_app(
             return
 
         await websocket.accept()
+        connection_id = object()
         node_id: str | None = None
         try:
             hello = parse_agent_hello(await websocket.receive_json())
             node_id = hello.node_id
-            cluster_state.register_hello(hello)
+            cluster_state.register_hello(hello, connection_id=connection_id)
             await websocket.send_json(
                 {
                     "type": "config",
@@ -228,7 +229,7 @@ def create_app(
                 message = await websocket.receive_json()
                 message_type = message.get("type")
                 if message_type == "sample":
-                    accepted = cluster_state.ingest_sample(message)
+                    accepted = cluster_state.ingest_sample(message, connection_id=connection_id)
                     if accepted and db_sink is not None:
                         runtime = cluster_state.latest_by_node.get(str(message.get("node_id") or ""))
                         if runtime is not None:
@@ -240,6 +241,7 @@ def create_app(
                         cluster_state.ingest_heartbeat(
                             heartbeat_node_id,
                             seq=int(message.get("seq") or 0),
+                            connection_id=connection_id,
                         )
                     await websocket.send_json({"type": "ack", "seq": message.get("seq")})
                 else:
@@ -248,7 +250,7 @@ def create_app(
                     )
         except WebSocketDisconnect:
             if node_id:
-                cluster_state.disconnect(node_id)
+                cluster_state.disconnect(node_id, connection_id=connection_id)
             return
 
     if FRONTEND_DIST.exists():

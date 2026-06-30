@@ -71,3 +71,41 @@ def test_cluster_state_marks_stale_offline_and_disconnect() -> None:
 
     state.disconnect("node-a", now=43.0)
     assert state.snapshot(now=43.0).nodes[0].status == "offline"
+
+
+def test_cluster_state_accepts_samples_after_agent_reconnect_resets_seq() -> None:
+    state = ClusterState(local_node_id="manager")
+    old_connection = object()
+    new_connection = object()
+    state.register_hello(
+        AgentHello(node_id="node-a", hostname="host-a"),
+        now=10.0,
+        connection_id=old_connection,
+    )
+    assert state.ingest_sample(
+        sample_message("node-a", 2508, util=40),
+        received_at=11.0,
+        connection_id=old_connection,
+    )
+
+    state.register_hello(
+        AgentHello(node_id="node-a", hostname="host-a"),
+        now=20.0,
+        connection_id=new_connection,
+    )
+    state.disconnect("node-a", now=21.0, connection_id=old_connection)
+    assert not state.ingest_sample(
+        sample_message("node-a", 2509, util=99),
+        received_at=22.0,
+        connection_id=old_connection,
+    )
+    assert state.ingest_sample(
+        sample_message("node-a", 1, util=55),
+        received_at=23.0,
+        connection_id=new_connection,
+    )
+
+    node = state.snapshot(now=23.0).nodes[0]
+    assert node.status == "online"
+    assert node.seq == 1
+    assert node.gpus[0].utilization_gpu == 55
