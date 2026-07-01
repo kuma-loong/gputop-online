@@ -1,5 +1,7 @@
 # Constella 阶段二设计计划
 
+> 历史说明：本文记录阶段二的原始演进设计，其中“单机兼容 API”和“本机 Snapshot 包装为 Local NodeSnapshot”的过渡方案已在阶段 2.1 被废弃。当前实现以 `docs/plan_stage2.1.md` 为准：本机 GPU 也通过 local agent 上报到 manager，统一复用 Cluster API。
+
 ## 1. 当前状态
 
 Constella 当前是单机 GPU 监控工具：

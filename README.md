@@ -11,14 +11,14 @@
 
 </div>
 
-Lightweight realtime NVIDIA GPU monitoring for one server or a small GPU cluster. The backend reads GPU metrics through NVML first and falls back to `nvidia-smi`; in cluster mode, GPU node agents push snapshots back to a manager over WebSocket.
+Lightweight realtime NVIDIA GPU monitoring for one server or a small GPU cluster. Every GPU node, including the manager host when local monitoring is enabled, runs the same agent path: NVML first, `nvidia-smi` fallback, WebSocket sample ingest into the manager.
 
 [简体中文](README_zh.md)
 
 ## Features
 
-- Selectable global refresh rate: 0.5s, 1s, 2s, or 5s with a single shared backend collector.
-- Low overhead: persistent NVML sampler, no per-browser GPU polling, latest state kept in memory.
+- Selectable agent refresh rate: 0.5s, 1s, 2s, or 5s, broadcast by the manager to connected agents.
+- Low overhead: one persistent sampler per GPU node agent, no per-browser GPU polling, latest state kept in memory.
 - Manager-agent cluster mode: the manager can start remote agents over SSH, while agents stream samples back over WebSocket.
 - Cluster UI routes: `/overview` shows cluster totals and one fabric card per node; `/nodes/<node_id>` shows that node's GPUs and tasks.
 - Process list sampled at a lower cadence by default to reduce `/proc` and driver query jitter.
@@ -47,7 +47,7 @@ cd Constella
 ./scripts/service/start.sh
 ```
 
-The service listens on `127.0.0.1:8765` by default. Use SSH forwarding from your local machine:
+By default this starts both the manager and a local GPU agent. The manager listens on `127.0.0.1:8765`; the local agent connects back to `ws://127.0.0.1:8765/api/agents/ws`. Use SSH forwarding from your local machine:
 
 ```bash
 ssh -N -L 8765:127.0.0.1:8765 <user>@<server>
@@ -59,9 +59,15 @@ Then open:
 http://127.0.0.1:8765/overview
 ```
 
+Set `LOCAL_AGENT=0` when the host should run only the manager:
+
+```bash
+LOCAL_AGENT=0 ./scripts/service/start.sh
+```
+
 ## Cluster Mode
 
-Start the manager with an agent token file:
+`scripts/service/start.sh` creates `run/agent-token` automatically when the local agent is enabled. To provide your own token file:
 
 ```bash
 mkdir -p run
@@ -77,7 +83,7 @@ Create `nodes.yaml` from the example and edit hosts/users:
 cp docs/nodes.example.yaml nodes.yaml
 ```
 
-Set `manager_hostname` to the manager node label you want in the UI. If `CONSTELLA_NODE_ID` is not set, this value also becomes the local manager node id used by `/nodes/<node_id>`.
+Set `manager_hostname` to the local manager-host agent label you want in the UI. `scripts/service/start.sh` uses it as the default `LOCAL_AGENT_NODE_ID`.
 
 Start, inspect, and stop remote agents:
 
@@ -102,6 +108,7 @@ Remote GPU nodes do not need `uv`. The manager builds a minimal agent runtime bu
 ./scripts/service/status.sh
 ./scripts/service/stop.sh
 HOST=127.0.0.1 PORT=8765 REFRESH=1.0 PROCESS_REFRESH=3.0 ./scripts/service/start.sh
+LOCAL_AGENT=0 ./scripts/service/start.sh
 uv run constella probe --pretty
 uv run constella agent
 uv run constella cluster start --nodes nodes.yaml
@@ -113,17 +120,17 @@ COUNT=20 ./scripts/dev/bench_probe.sh
 ## API
 
 - `GET /api/health`
-- `GET /api/snapshot`
 - `GET /api/cluster/snapshot`
 - `GET /api/settings`
 - `PATCH /api/settings`
-- `WS /ws/gpu`
 - `WS /ws/cluster`
 - `WS /api/agents/ws`
 - `GET /api/history/gpu`
 - `GET /api/history/tasks`
 - `GET /api/users`
 - `GET /api/docs`
+
+Deprecated single-node endpoints are intentionally not compatibility layers: `GET /api/snapshot` returns `410 Gone`, and `WS /ws/gpu` closes immediately. Use the cluster API for local and remote nodes.
 
 ## Development
 

@@ -1,10 +1,11 @@
 # Constella
 
-一个普通用户级的 NVIDIA GPU 实时监控服务，支持单机和轻量集群模式。后端优先使用 NVML API 采集，失败时使用 `nvidia-smi` 兜底；集群模式下，GPU 节点 agent 通过 WebSocket 主动回连 manager。
+一个普通用户级的 NVIDIA GPU 实时监控服务，支持本机和轻量集群模式。所有 GPU 节点，包括启用本机监控时的 manager 主机，都走同一条 agent 路径：NVML 优先、`nvidia-smi` 兜底、WebSocket 上报到 manager。
 
 ## 功能
 
-- 可选全局刷新率：支持 0.5 秒、1 秒、2 秒、5 秒，单个后台 collector 采样，多个浏览器共享快照，避免重复访问 GPU 驱动。
+- 可选 agent 刷新率：支持 0.5 秒、1 秒、2 秒、5 秒，由 manager 下发给已连接 agent。
+- 低开销采样：每个 GPU 节点 agent 只有一个常驻采样器，多个浏览器共享 manager 内存中的最新快照，避免重复访问 GPU 驱动。
 - 集群 manager-agent 模式：manager 通过 SSH 启动远端 agent，agent 通过 WebSocket 持续回传节点快照。
 - 集群前端路径：`/overview` 展示集群 totals 和按节点拆分的 fabric 卡片，`/nodes/<node_id>` 展示该节点的 GPU 卡片和任务表。
 - 低抖动进程采样：核心 GPU 指标按当前刷新率更新，进程列表默认每 3 秒刷新一次。
@@ -34,7 +35,7 @@ cd Constella
 ./scripts/service/start.sh
 ```
 
-默认监听 `127.0.0.1:8765`。在本地电脑执行：
+默认会同时启动 manager 和本机 GPU agent。manager 监听 `127.0.0.1:8765`，本机 agent 连接 `ws://127.0.0.1:8765/api/agents/ws`。在本地电脑执行：
 
 ```bash
 ssh -N -L 8765:127.0.0.1:8765 <user>@<server>
@@ -42,9 +43,15 @@ ssh -N -L 8765:127.0.0.1:8765 <user>@<server>
 
 然后打开 `http://127.0.0.1:8765/overview`。
 
+如果这台机器只作为 manager，不采集本机 GPU：
+
+```bash
+LOCAL_AGENT=0 ./scripts/service/start.sh
+```
+
 ## 集群模式
 
-先在 manager 上准备 agent token 文件：
+本机 agent 开启时，`scripts/service/start.sh` 会自动创建 `run/agent-token`。如需使用指定 token 文件：
 
 ```bash
 mkdir -p run
@@ -60,7 +67,7 @@ AGENT_TOKEN_FILE=run/agent-token ./scripts/service/start.sh
 cp docs/nodes.example.yaml nodes.yaml
 ```
 
-`manager_hostname` 用来配置管理节点在页面上的显示名。未设置 `CONSTELLA_NODE_ID` 时，它也会作为本机 manager 节点的 `/nodes/<node_id>` 节点名。
+`manager_hostname` 用来配置 manager 主机本机 agent 在页面上的显示名。`scripts/service/start.sh` 会把它作为默认 `LOCAL_AGENT_NODE_ID`。
 
 启动、查看和停止远端 agent：
 
@@ -85,6 +92,7 @@ cp docs/nodes.example.yaml nodes.yaml
 ./scripts/service/status.sh
 ./scripts/service/stop.sh
 HOST=127.0.0.1 PORT=8765 REFRESH=1.0 PROCESS_REFRESH=3.0 ./scripts/service/start.sh
+LOCAL_AGENT=0 ./scripts/service/start.sh
 uv run constella probe --pretty
 uv run constella agent
 uv run constella cluster start --nodes nodes.yaml
@@ -96,17 +104,17 @@ COUNT=20 ./scripts/dev/bench_probe.sh
 ## API
 
 - `GET /api/health`：服务健康状态。
-- `GET /api/snapshot`：当前 GPU 快照。
 - `GET /api/cluster/snapshot`：当前集群快照。
 - `GET /api/settings`：当前运行时设置。
 - `PATCH /api/settings`：更新全局刷新率。
-- `WS /ws/gpu`：实时快照流。
 - `WS /ws/cluster`：实时集群快照流。
 - `WS /api/agents/ws`：agent 上报通道。
 - `GET /api/history/gpu`：可选 GPU 历史指标。
 - `GET /api/history/tasks`：可选任务历史。
 - `GET /api/users`：可选用户任务聚合。
 - `GET /api/docs`：FastAPI OpenAPI 文档。
+
+旧单机接口不再作为兼容层维护：`GET /api/snapshot` 返回 `410 Gone`，`WS /ws/gpu` 会立即关闭。本机和远端节点都统一使用 cluster API。
 
 ## 开发
 

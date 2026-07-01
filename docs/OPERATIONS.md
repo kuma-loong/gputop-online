@@ -19,13 +19,26 @@ cd Constella
 HOST=127.0.0.1 PORT=8765 REFRESH=1.0 PROCESS_REFRESH=3.0 ./scripts/service/start.sh
 ```
 
-集群 manager 可额外配置 agent token：
+默认会启动两个后台进程：
+
+```text
+manager:     constella serve
+local agent: constella agent --manager-url ws://127.0.0.1:8765/api/agents/ws
+```
+
+如果本机只作为 manager，不采集本机 GPU：
+
+```bash
+LOCAL_AGENT=0 ./scripts/service/start.sh
+```
+
+本机 agent 开启时，脚本会在缺省情况下自动创建 `run/agent-token`，权限为 `600`。也可以显式配置 agent token：
 
 ```bash
 AGENT_TOKEN_FILE=run/agent-token ./scripts/service/start.sh
 ```
 
-日志写入 `logs/constella.log`，PID 写入 `run/constella.pid`。
+manager 日志写入 `logs/constella.log`，PID 写入 `run/constella.pid`。本机 agent 日志写入 `logs/local-agent.log`，PID 写入 `run/local-agent.pid`，状态文件写入 `run/local-agent-state.json`。
 
 ## 访问
 
@@ -43,7 +56,7 @@ http://127.0.0.1:8765/overview
 
 ## 集群 agent 管理
 
-准备 manager agent token：
+准备 manager agent token。若本机 agent 已通过 `scripts/service/start.sh` 启动，通常已经存在 `run/agent-token`：
 
 ```bash
 mkdir -p run
@@ -65,10 +78,16 @@ cp docs/nodes.example.yaml nodes.yaml
 ws://manager-host:8765/api/agents/ws
 ```
 
-`manager_hostname` 是管理节点在前端中的显示名；未设置 `CONSTELLA_NODE_ID` 时，它也会作为本机 manager 节点名，因此对应详情页为 `/nodes/<manager_hostname>`。也可以用环境变量临时覆盖：
+`manager_hostname` 是 manager 主机本机 agent 在前端中的显示名，`scripts/service/start.sh` 会把它作为默认 `LOCAL_AGENT_NODE_ID`。也可以用环境变量临时覆盖：
 
 ```bash
 MANAGER_HOSTNAME=H100 ./scripts/service/start.sh
+```
+
+或者直接设置本机 agent 节点名：
+
+```bash
+LOCAL_AGENT_NODE_ID=H100 ./scripts/service/start.sh
 ```
 
 启动、状态、停止：
@@ -109,7 +128,7 @@ uv run constella probe --pretty
 COUNT=20 ./scripts/dev/bench_probe.sh
 ```
 
-正常情况下 `probe` 的 `source` 为 `nvml`。如果为 `nvidia-smi`，说明 NVML 路径失败但兜底仍可用；查看 `logs/constella.log` 中的警告。
+正常情况下 `probe` 的 `source` 为 `nvml`。如果为 `nvidia-smi`，说明 NVML 路径失败但兜底仍可用。服务模式下，本机采样警告在 `logs/local-agent.log` 中。
 
 ## 验证集群 API
 

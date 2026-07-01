@@ -8,45 +8,43 @@
 
 ```mermaid
 flowchart LR
-  A["NVML sampler<br/>ctypes + libnvidia-ml.so"] --> C["Snapshot collector<br/>0.5s/1s/2s/5s loop"]
-  B["nvidia-smi fallback<br/>CSV query"] --> C
-  C --> D["FastAPI HTTP<br/>/api/snapshot"]
-  C --> E["Local NodeSnapshot wrapper"]
-  E --> M["Cluster state<br/>latest by node"]
-  A2["Remote agent"] -->|"WS /api/agents/ws"| M
-  M --> G["FastAPI HTTP<br/>/api/cluster/snapshot"]
-  M --> H["FastAPI WebSocket<br/>/ws/cluster"]
+  L["Local GPU agent<br/>NVML + nvidia-smi fallback"] -->|"WS /api/agents/ws"| M["Manager<br/>FastAPI + ingest"]
+  R["Remote GPU agent<br/>NVML + nvidia-smi fallback"] -->|"WS /api/agents/ws"| M
+  M --> S["Cluster state<br/>latest by node"]
+  S --> G["FastAPI HTTP<br/>/api/cluster/snapshot"]
+  S --> H["FastAPI WebSocket<br/>/ws/cluster"]
   H --> F["Vite TypeScript UI"]
-  M -.optional bounded queue.-> DB["SQLite sink"]
+  S -.optional bounded queue.-> DB["SQLite sink"]
 ```
 
-单机模式下后端仍然只有一个采样循环。浏览器连接数增加时，不会增加 NVML 调用次数，只会复用 collector 中的最新快照；Web 端切换刷新率时改变的是这个全局采样循环。
+manager 不直接采样本机 GPU。启用本机监控时，服务脚本会额外启动一个 local agent；这个 agent 和远端 agent 使用同一条 WebSocket ingest、ClusterState、DB sink 和前端 API 路径。浏览器连接数增加时，不会增加 NVML 调用次数，只会复用 manager 中的最新 `ClusterSnapshot`。
 
-集群模式下 manager 维护每个节点的 latest `NodeSnapshot`，再聚合成 `ClusterSnapshot` 推给前端。SSH 只用于安装、写配置、启动、停止和状态查询，不作为实时数据通道；agent 主动通过 WebSocket 回连 manager，不开放入站 HTTP 服务。
+manager 维护每个节点的 latest `NodeSnapshot`，再聚合成 `ClusterSnapshot` 推给前端。SSH 只用于安装、写配置、启动、停止和状态查询，不作为实时数据通道；agent 主动通过 WebSocket 回连 manager，不开放入站 HTTP 服务。
 
 ## 数据路径
 
-1. 启动时初始化 `NVMLSampler`，加载 `libnvidia-ml.so`。
+1. 每个 GPU 节点 agent 启动时初始化 `NVMLSampler`，加载 `libnvidia-ml.so`。
 2. 按全局刷新率读取 GPU 名称、UUID、显存、利用率、温度、功耗、时钟、P-state、Compute Mode、ECC 和 MIG；刷新率可在 Web 端切换为 0.5 秒、1 秒、2 秒或 5 秒。
 3. 进程枚举默认每 3 秒执行一次并缓存，实际间隔不低于当前核心刷新率，降低多用户进程查询带来的抖动。
 4. 如果 NVML 初始化或单次采样失败，关闭当前 NVML 句柄并执行 `nvidia-smi --query-gpu=... --format=csv,noheader,nounits`。
-5. collector 给快照补充序号、当前刷新间隔和 120 点短历史数据。
-6. 单机 `Snapshot` 被包装为本地 `NodeSnapshot`，远端 agent 直接上报节点样本。
+5. agent 内部 collector 给快照补充序号、当前刷新间隔和 120 点短历史数据。
+6. agent 通过 `WS /api/agents/ws` 发送 `hello`、`sample` 和 `heartbeat`。
 7. manager 按 `node_id` 维护 latest state，丢弃同节点旧 `seq`，并按本地接收时间标记 stale/offline。
-8. WebSocket 客户端收到 `ClusterSnapshot` 后刷新前端路由：`/overview` 只显示集群 KPI 和按节点拆分的 fabric 卡片；`/nodes/<node_id>` 只显示对应节点的 GPU 卡片、任务表和历史曲线。
+8. manager 把接受的 `NodeSnapshot` 提交给可选 SQLite sink；本机 agent 与远端 agent 写库路径完全一致。
+9. WebSocket 客户端收到 `ClusterSnapshot` 后刷新前端路由：`/overview` 只显示集群 KPI 和按节点拆分的 fabric 卡片；`/nodes/<node_id>` 只显示对应节点的 GPU 卡片、任务表和历史曲线。
 
 ## 低开销策略
 
 - 不使用 `nvidia-smi -l` 常驻子进程，正常路径不每秒 fork。
-- NVML 在服务进程内保持初始化状态，单 collector 串行采样。
-- 刷新率是全局运行时设置，浏览器切换不会创建额外 collector。
+- NVML 在 agent 进程内保持初始化状态，每个 GPU 节点只有一个 collector 串行采样。
+- 刷新率是 manager 维护并广播给 agent 的运行时设置，浏览器切换不会创建额外 collector。
 - 进程列表降频采样，避免 `/proc` 和驱动进程查询影响核心指标刷新。
 - 前端不依赖大型图表库，短曲线用 SVG polyline 绘制。
-- 后端只保留最近 120 个实时采样点；数据库为可选模块，并通过有界队列异步写入。
+- agent 只保留最近 120 个实时采样点；数据库为可选模块，并通过 manager 有界队列异步写入。
 
 ## 普通用户权限
 
-manager 侧使用当前用户目录、`uv`、`npm` 和 `nohup`。GPU 节点 agent 不要求安装 `uv`；manager 本地构建最小 agent runtime 后通过 SSH 同步，远端只需要 `python3 >= 3.10`、NVML/`nvidia-smi` 和普通用户权限。不写 `/etc`，不调用 sudo。默认监听 `127.0.0.1`，通过 SSH `-L` 端口转发访问。
+manager 侧使用当前用户目录、`uv`、`npm` 和 `nohup`。本机 agent 由 `scripts/service/start.sh` 默认启动，也使用普通用户后台进程。远端 GPU 节点 agent 不要求安装 `uv`；manager 本地构建最小 agent runtime 后通过 SSH 同步，远端只需要 `python3 >= 3.10`、NVML/`nvidia-smi` 和普通用户权限。不写 `/etc`，不调用 sudo。默认监听 `127.0.0.1`，通过 SSH `-L` 端口转发访问。
 
 ## 硬件自适应
 
