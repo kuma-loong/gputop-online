@@ -36,6 +36,25 @@ class OtherUserMemory:
 
 
 @dataclass(slots=True)
+class GpuHardwareInfo:
+    index: int
+    uuid: str = "unknown"
+    name: str = "unknown"
+    architecture: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class NodeHardware:
+    gpus: list[GpuHardwareInfo] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"gpus": [gpu.to_dict() for gpu in self.gpus]}
+
+
+@dataclass(slots=True)
 class GpuInfo:
     index: int
     node_id: str | None = None
@@ -180,6 +199,7 @@ class NodeSnapshot:
     nvml_version: str | None = None
     elapsed_ms: float = 0.0
     history: dict[str, dict[str, list[float]]] = field(default_factory=dict)
+    hardware: NodeHardware | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -222,11 +242,17 @@ class ClusterSnapshot:
     history: dict[str, dict[str, list[float]]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        nodes: list[dict[str, Any]] = []
+        for node in self.nodes:
+            data = node.to_dict()
+            if node.hardware is not None:
+                data["hardware"] = node.hardware.to_dict()
+            nodes.append(data)
         return {
             "ok": self.ok,
             "seq": self.seq,
             "timestamp": self.timestamp,
-            "nodes": [node.to_dict() for node in self.nodes],
+            "nodes": nodes,
             "totals": self.totals.to_dict(),
             "history": self.history,
         }

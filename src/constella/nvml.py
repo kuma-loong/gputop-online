@@ -11,8 +11,10 @@ import time
 from . import nvidia_smi
 from .procfs import process_cmdline, process_exe, process_runtime_seconds, process_start_time_seconds
 from .schema import (
+    GpuHardwareInfo,
     GpuInfo,
     GpuProcess,
+    NodeHardware,
     OtherUserMemory,
     Snapshot,
     cmdline_fingerprint,
@@ -30,6 +32,19 @@ NVML_CLOCK_MEM = 2
 NVML_DEVICE_NAME_BUFFER_SIZE = 96
 NVML_DEVICE_UUID_BUFFER_SIZE = 96
 NVML_SYSTEM_BUFFER_SIZE = 96
+
+ARCHITECTURE_MAP = {
+    2: "Kepler",
+    3: "Maxwell",
+    4: "Pascal",
+    5: "Volta",
+    6: "Turing",
+    7: "Ampere",
+    8: "Ada",
+    9: "Hopper",
+    10: "Blackwell",
+    11: "Orin",
+}
 
 PSTATE_MAP = {
     0: "P0",
@@ -214,6 +229,12 @@ def _setup(lib: ctypes.CDLL) -> None:
             ctypes.POINTER(NvmlMemoryV2),
         ]
         lib.nvmlDeviceGetMemoryInfo_v2.restype = ctypes.c_int
+    if hasattr(lib, "nvmlDeviceGetArchitecture"):
+        lib.nvmlDeviceGetArchitecture.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_uint),
+        ]
+        lib.nvmlDeviceGetArchitecture.restype = ctypes.c_int
 
 
 def _decode_buffer(buf: ctypes.Array[ctypes.c_char]) -> str | None:
@@ -271,6 +292,24 @@ def _cuda_driver_version(value: int) -> str:
     if value <= 0:
         return "unknown"
     return f"{value // 1000}.{(value % 1000) // 10}"
+
+
+def architecture_label(value: int | None) -> str | None:
+    if value is None or value == 0xFFFFFFFF:
+        return None
+    return ARCHITECTURE_MAP.get(value)
+
+
+def sample_hardware_inventory() -> NodeHardware | None:
+    sampler: NVMLSampler | None = None
+    try:
+        sampler = NVMLSampler()
+        return sampler.hardware_inventory()
+    except Exception:
+        return None
+    finally:
+        if sampler is not None:
+            sampler.close()
 
 
 class NVMLSampler:
@@ -333,6 +372,29 @@ class NVMLSampler:
             cuda_driver_version=self._cuda_version(),
             nvml_version=self._system_string("nvmlSystemGetNVMLVersion"),
         )
+
+    def hardware_inventory(self) -> NodeHardware:
+        count = ctypes.c_uint(0)
+        rc = self._lib.nvmlDeviceGetCount(ctypes.byref(count))
+        if rc != NVML_SUCCESS:
+            raise NVMLUnavailable(f"nvmlDeviceGetCount failed with code {rc}")
+
+        gpus: list[GpuHardwareInfo] = []
+        for index in range(count.value):
+            handle = ctypes.c_void_p()
+            rc = self._lib.nvmlDeviceGetHandleByIndex(index, ctypes.byref(handle))
+            if rc != NVML_SUCCESS:
+                gpus.append(GpuHardwareInfo(index=index))
+                continue
+            gpus.append(
+                GpuHardwareInfo(
+                    index=index,
+                    uuid=self._device_string(handle, "nvmlDeviceGetUUID", NVML_DEVICE_UUID_BUFFER_SIZE),
+                    name=self._device_string(handle, "nvmlDeviceGetName", NVML_DEVICE_NAME_BUFFER_SIZE),
+                    architecture=self._architecture(handle),
+                )
+            )
+        return NodeHardware(gpus=gpus)
 
     def _sample_gpu(
         self,
@@ -419,6 +481,12 @@ class NVMLSampler:
         if rc != NVML_SUCCESS:
             return "unknown"
         return _decode_buffer(buf) or "unknown"
+
+    def _architecture(self, handle: ctypes.c_void_p) -> str | None:
+        if not hasattr(self._lib, "nvmlDeviceGetArchitecture"):
+            return None
+        raw = self._optional_uint_device_call(handle, "nvmlDeviceGetArchitecture")
+        return architecture_label(raw)
 
     def _uint_device_call(
         self,

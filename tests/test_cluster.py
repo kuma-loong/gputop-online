@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from constella.cluster import AgentHello, ClusterState
+from constella.cluster import AgentHello, ClusterState, parse_agent_hello
 
 
 def sample_message(node_id: str, seq: int, util: int = 50) -> dict[str, object]:
@@ -109,3 +109,34 @@ def test_cluster_state_accepts_samples_after_agent_reconnect_resets_seq() -> Non
     assert node.status == "online"
     assert node.seq == 1
     assert node.gpus[0].utilization_gpu == 55
+
+
+def test_cluster_state_keeps_static_hardware_from_hello() -> None:
+    state = ClusterState(local_node_id="manager")
+    hello = parse_agent_hello(
+        {
+            "type": "hello",
+            "node_id": "node-a",
+            "hostname": "host-a",
+            "hardware": {
+                "gpus": [
+                    {
+                        "index": 0,
+                        "uuid": "GPU-abc",
+                        "name": "NVIDIA H100 80GB HBM3",
+                        "architecture": "Hopper",
+                    }
+                ]
+            },
+        }
+    )
+
+    state.register_hello(hello, now=10.0)
+    state.ingest_sample(sample_message("node-a", 1), received_at=11.0)
+
+    node = state.snapshot(now=11.0).nodes[0]
+    assert node.hardware is not None
+    assert node.hardware.gpus[0].architecture == "Hopper"
+    assert not hasattr(node.gpus[0], "architecture")
+    assert "hardware" not in node.to_dict()
+    assert state.snapshot(now=11.0).to_dict()["nodes"][0]["hardware"]["gpus"][0]["architecture"] == "Hopper"

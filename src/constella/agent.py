@@ -17,7 +17,8 @@ import websockets
 from . import __version__
 from .cluster import SCHEMA_VERSION
 from .collector import SnapshotCollector, validate_refresh_interval
-from .schema import Snapshot, local_node_id
+from .nvml import sample_hardware_inventory
+from .schema import NodeHardware, Snapshot, local_node_id
 
 logger = logging.getLogger(__name__)
 
@@ -110,9 +111,10 @@ async def run_agent(config: AgentConfig, *, collector: SnapshotCollector | None 
     )
     status = AgentStatus(node_id=config.node_id, pid=os.getpid())
     writer_task = asyncio.create_task(_state_writer(config.state_file, status), name="agent-state-writer")
+    hardware = await asyncio.to_thread(sample_hardware_inventory)
     await collector.start()
     try:
-        await _connection_loop(config, collector, status)
+        await _connection_loop(config, collector, status, hardware)
     finally:
         writer_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
@@ -126,11 +128,12 @@ async def _connection_loop(
     config: AgentConfig,
     collector: SnapshotCollector,
     status: AgentStatus,
+    hardware: NodeHardware | None,
 ) -> None:
     attempt = 0
     while True:
         try:
-            await _run_connection(config, collector, status)
+            await _run_connection(config, collector, status, hardware)
             attempt = 0
         except asyncio.CancelledError:
             raise
@@ -147,6 +150,7 @@ async def _run_connection(
     config: AgentConfig,
     collector: SnapshotCollector,
     status: AgentStatus,
+    hardware: NodeHardware | None,
 ) -> None:
     headers = {"Authorization": f"Bearer {config.token}"}
     async with websockets.connect(
@@ -157,7 +161,7 @@ async def _run_connection(
     ) as websocket:
         status.status = "online"
         status.last_error = None
-        await websocket.send(json.dumps(agent_hello(config)))
+        await websocket.send(json.dumps(agent_hello(config, hardware=hardware)))
         receiver = asyncio.create_task(_receiver_loop(websocket, collector), name="agent-ws-receiver")
         sender = asyncio.create_task(_sender_loop(websocket, collector, config, status), name="agent-ws-sender")
         done, pending = await asyncio.wait(
@@ -239,8 +243,8 @@ def write_state_file(path: Path, status: AgentStatus) -> None:
     os.replace(temp_path, path)
 
 
-def agent_hello(config: AgentConfig) -> dict[str, Any]:
-    return {
+def agent_hello(config: AgentConfig, *, hardware: NodeHardware | None = None) -> dict[str, Any]:
+    message: dict[str, Any] = {
         "type": "hello",
         "schema_version": SCHEMA_VERSION,
         "node_id": config.node_id,
@@ -252,6 +256,9 @@ def agent_hello(config: AgentConfig) -> dict[str, Any]:
             "process_cmdline": True,
         },
     }
+    if hardware is not None:
+        message["hardware"] = hardware.to_dict()
+    return message
 
 
 def agent_sample(

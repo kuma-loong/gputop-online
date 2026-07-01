@@ -55,6 +55,17 @@ type OtherUserMemory = {
   runtime_seconds?: number | null;
 };
 
+type GpuHardwareInfo = {
+  index: number;
+  uuid: string;
+  name: string;
+  architecture?: string | null;
+};
+
+type NodeHardware = {
+  gpus: GpuHardwareInfo[];
+};
+
 type GpuInfo = {
   index: number;
   node_id?: string | null;
@@ -116,6 +127,7 @@ type NodeSnapshot = {
   nvml_version?: string | null;
   elapsed_ms?: number;
   history: Record<string, Record<string, number[]>>;
+  hardware?: NodeHardware | null;
 };
 
 type ClusterSnapshot = {
@@ -756,6 +768,27 @@ function summarizeCluster(snapshot: ClusterSnapshot) {
   if (!snapshot.nodes.length) {
     return "No nodes connected";
   }
+  const hardware = flattenHardwareGpus(snapshot);
+  if (hardware.length) {
+    const configs = new Map<string, { count: number; name: string; architecture: string | null }>();
+    for (const gpu of hardware) {
+      const name = compactGpuName(gpu.name);
+      const architecture = gpu.architecture || null;
+      const key = `${name}\u0000${architecture || ""}`;
+      const config = configs.get(key);
+      if (config) {
+        config.count += 1;
+      } else {
+        configs.set(key, { count: 1, name, architecture });
+      }
+    }
+    const label = Array.from(configs.values())
+      .map(({ count, name, architecture }) => `${count}x ${name}${architecture ? ` (${architecture})` : ""}`)
+      .join(" · ");
+    if (label) {
+      return label;
+    }
+  }
   const models = new Map<string, number>();
   for (const { gpu } of flattenGpus(snapshot)) {
     models.set(gpu.name, (models.get(gpu.name) || 0) + 1);
@@ -764,6 +797,10 @@ function summarizeCluster(snapshot: ClusterSnapshot) {
     .map(([name, count]) => `${count}x ${name.replace(/^NVIDIA\s+/, "")}`)
     .join(" · ");
   return modelLabel || `${snapshot.nodes.length} nodes`;
+}
+
+function flattenHardwareGpus(snapshot: ClusterSnapshot) {
+  return snapshot.nodes.flatMap((node) => node.hardware?.gpus || []);
 }
 
 function setLiveState(state: "connecting" | "live" | "paused" | "offline" | "error") {

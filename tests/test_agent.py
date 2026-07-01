@@ -12,7 +12,7 @@ from constella.agent import (
     reconnect_delay,
     write_state_file,
 )
-from constella.schema import GpuInfo, Snapshot
+from constella.schema import GpuHardwareInfo, GpuInfo, NodeHardware, Snapshot
 
 
 def test_agent_config_reads_env_and_token_file(tmp_path, monkeypatch) -> None:
@@ -51,16 +51,28 @@ def test_agent_protocol_messages_include_required_fields() -> None:
         gpus=[GpuInfo(index=0, uuid="GPU-a", memory_total_mb=100, memory_used_mb=20)],
     )
 
-    hello = agent_hello(config)
+    hardware = NodeHardware(
+        gpus=[
+            GpuHardwareInfo(
+                index=0,
+                uuid="GPU-a",
+                name="NVIDIA H100 80GB HBM3",
+                architecture="Hopper",
+            )
+        ]
+    )
+    hello = agent_hello(config, hardware=hardware)
     sample = agent_sample(config, 7, snapshot)
     heartbeat = agent_heartbeat(config, 8)
 
     assert hello["type"] == "hello"
     assert hello["node_id"] == "node-a"
     assert hello["capabilities"]["nvidia_smi_fallback"] is True
+    assert hello["hardware"]["gpus"][0]["architecture"] == "Hopper"
     assert sample["type"] == "sample"
     assert sample["seq"] == 7
     assert sample["snapshot"]["gpus"][0]["uuid"] == "GPU-a"
+    assert "architecture" not in sample["snapshot"]["gpus"][0]
     assert heartbeat["type"] == "heartbeat"
     assert heartbeat["seq"] == 8
 

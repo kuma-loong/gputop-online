@@ -7,8 +7,10 @@ from typing import Any
 
 from .schema import (
     ClusterSnapshot,
+    GpuHardwareInfo,
     GpuInfo,
     GpuProcess,
+    NodeHardware,
     NodeSnapshot,
     OtherUserMemory,
     cluster_snapshot_from_nodes,
@@ -25,6 +27,7 @@ class AgentHello:
     hostname: str
     agent_version: str | None = None
     capabilities: dict[str, Any] | None = None
+    hardware: NodeHardware | None = None
 
 
 @dataclass(slots=True)
@@ -37,6 +40,7 @@ class NodeRuntime:
     last_seen_at: float = 0.0
     agent_version: str | None = None
     connection_id: object | None = None
+    hardware: NodeHardware | None = None
 
 
 class ClusterState:
@@ -91,6 +95,7 @@ class ClusterState:
                 status="online",
                 source="none",
                 agent_version=hello.agent_version,
+                hardware=hello.hardware,
             )
             runtime = NodeRuntime(
                 node_id=hello.node_id,
@@ -100,6 +105,7 @@ class ClusterState:
                 last_seen_at=seen_at,
                 agent_version=hello.agent_version,
                 connection_id=connection_id,
+                hardware=hello.hardware,
             )
             self.latest_by_node[hello.node_id] = runtime
         else:
@@ -109,8 +115,10 @@ class ClusterState:
             runtime.last_seq = 0
             runtime.connection_id = connection_id
             runtime.agent_version = hello.agent_version or runtime.agent_version
+            runtime.hardware = hello.hardware or runtime.hardware
             runtime.snapshot.hostname = hello.hostname
             runtime.snapshot.agent_version = runtime.agent_version
+            runtime.snapshot.hardware = runtime.hardware
         self._bump()
 
     def ingest_sample(
@@ -136,6 +144,7 @@ class ClusterState:
             received_at=now,
             hostname=runtime.hostname if runtime else None,
             agent_version=runtime.agent_version if runtime else None,
+            hardware=runtime.hardware if runtime else None,
         )
         self.latest_by_node[node_id] = NodeRuntime(
             node_id=node_id,
@@ -146,6 +155,7 @@ class ClusterState:
             last_seen_at=now,
             agent_version=snapshot.agent_version,
             connection_id=connection_id,
+            hardware=snapshot.hardware,
         )
         self._bump()
         return True
@@ -237,11 +247,13 @@ def parse_agent_hello(message: dict[str, Any]) -> AgentHello:
         raise ValueError("agent hello is missing node_id")
     hostname = str(message.get("hostname") or node_id)
     capabilities = message.get("capabilities")
+    hardware = _hardware_from_dict(message.get("hardware"))
     return AgentHello(
         node_id=node_id,
         hostname=hostname,
         agent_version=message.get("agent_version"),
         capabilities=capabilities if isinstance(capabilities, dict) else None,
+        hardware=hardware,
     )
 
 
@@ -251,6 +263,7 @@ def node_snapshot_from_agent_sample(
     received_at: float,
     hostname: str | None = None,
     agent_version: str | None = None,
+    hardware: NodeHardware | None = None,
 ) -> NodeSnapshot:
     if message.get("type") != "sample":
         raise ValueError("agent message is not a sample")
@@ -285,7 +298,24 @@ def node_snapshot_from_agent_sample(
         nvml_version=payload.get("nvml_version"),
         elapsed_ms=float(payload.get("elapsed_ms") or 0.0),
         history=history,
+        hardware=hardware,
     )
+
+
+def _hardware_from_dict(payload: Any) -> NodeHardware | None:
+    if not isinstance(payload, dict):
+        return None
+    gpus = [
+        GpuHardwareInfo(
+            index=int(item.get("index") or 0),
+            uuid=str(item.get("uuid") or "unknown"),
+            name=str(item.get("name") or "unknown"),
+            architecture=item.get("architecture") if item.get("architecture") else None,
+        )
+        for item in payload.get("gpus", [])
+        if isinstance(item, dict)
+    ]
+    return NodeHardware(gpus=gpus) if gpus else None
 
 
 def _gpu_from_dict(node_id: str, data: dict[str, Any]) -> GpuInfo:
