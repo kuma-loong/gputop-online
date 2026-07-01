@@ -65,9 +65,10 @@ SQLite sink 默认关闭。启用后，实时链路仍然是 `agent sample -> ma
 
 - `process_sessions`：用户任务生命周期。
 - `process_gpu_usages`：多 GPU 任务与每张 GPU 的显存统计。
-- `gpu_metric_samples`：短期原始指标点。
-- `gpu_metric_rollups`：降采样曲线。
+- `gpu_metric_rollups`：20 秒、2 分钟和 1 小时降采样曲线。
 - `raw_snapshots`：低频调试快照，默认关闭，建议 12 小时保留。
+
+原始 1 秒 GPU 指标不再写入 SQLite。DB sink 只在内存中保留正在聚合的 20 秒桶；桶关闭后写入 `gpu_metric_rollups`，再由维护任务聚合到 2 分钟和 1 小时粒度。`gpu_metric_samples` 表只为旧库兼容和一次性迁移保留，实时链路和新写入路径都不依赖它。
 
 ## 参考资料
 

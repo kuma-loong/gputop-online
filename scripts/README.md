@@ -22,3 +22,5 @@ LOCAL_AGENT=0 ./scripts/service/start.sh
 ```
 
 `scripts/service/start.sh` 默认启动 manager 和本机 GPU agent，并在需要时自动生成 `run/agent-token`。manager pid/log 使用 `run/constella.pid` 和 `logs/constella.log`；本机 agent 使用 `run/local-agent.pid`、`logs/local-agent.log` 和 `run/local-agent-state.json`。
+
+SQLite 历史库默认关闭。启用后，`scripts/maintenance/db.sh` 运行 `uv run constella db maintain`，负责关闭 stale session、聚合 rollup、清理过期 rollup 和低频 raw snapshot。

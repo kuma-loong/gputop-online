@@ -25,7 +25,7 @@ Lightweight realtime NVIDIA GPU monitoring for one server or a small GPU cluster
 - Per-process task details include user, PID, task name, command line hash, GPU memory, runtime, and process start time when the OS allows reading them.
 - `nvidia-smi` fallback when NVML initialization or a sampling call fails.
 - Hardware-agnostic NVIDIA dashboard: GPU utilization, memory, power, temperature, clocks, P-state, ECC, MIG, process memory, process runtime, and short history sparklines.
-- Optional SQLite history sink for GPU metric samples, rollups, process sessions, and process-GPU usage. See [SQLite History](docs/HISTORY.md).
+- Optional SQLite history sink for GPU metric rollups, process sessions, and process-GPU usage. See [SQLite History](docs/HISTORY.md).
 - User-level deployment: no sudo, no system service required.
 - Optional Cloudflare Tunnel deployment keeps the service bound to `127.0.0.1` while exposing it through a hostname. See [Cloudflare Tunnel](docs/CLOUD_TUNNEL.md).
 

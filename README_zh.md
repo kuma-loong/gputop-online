@@ -13,7 +13,7 @@
 - `nvidia-smi` 兜底：NVML 初始化失败或权限受限时仍能显示 GPU 基础指标。
 - 进程明细：尽力展示用户、PID、任务名、命令行哈希、GPU 显存、运行时间和进程启动时间。
 - 硬件自适应：自动解析本机 NVIDIA GPU 数量和型号，展示 GPU 利用率、显存、功耗、温度、时钟、P-state、ECC、MIG、进程占用、运行时间和短历史曲线。
-- 可选 SQLite 历史模块：记录 GPU 指标点、rollup、任务 session 和任务-GPU 使用关系，详见 [SQLite 历史库](docs/HISTORY.md)。
+- 可选 SQLite 历史模块：记录 GPU rollup、任务 session 和任务-GPU 使用关系，详见 [SQLite 历史库](docs/HISTORY.md)。
 - 单服务部署：FastAPI 同时提供 API、WebSocket 和静态前端。
 - 可选 Cloudflare Tunnel 部署：服务可继续监听 `127.0.0.1`，不暴露服务器端口，详见 [Cloudflare Tunnel](docs/CLOUD_TUNNEL.md)。
 
