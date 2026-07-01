@@ -386,30 +386,84 @@ button {
 .fabric-band {
   display: grid;
   gap: 14px;
-  margin-top: 18px;
+  margin-top: 30px;
 }
 
 .fabric-copy {
   display: flex;
-  align-items: end;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 18px;
   min-width: 0;
   padding-bottom: 2px;
 }
 
-.fabric-copy span {
+.fabric-config {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.fabric-title {
+  min-width: 0;
+}
+
+.fabric-kicker {
+  display: block;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.fabric-title > strong {
+  display: block;
+  margin-top: 5px;
+  font-size: 20px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.fabric-config-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.fabric-config-chip {
+  display: inline-grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  min-height: 38px;
+  max-width: min(100%, 360px);
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #101215;
+}
+
+.fabric-config-chip b {
+  color: var(--green);
+  font-size: 16px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.fabric-config-chip strong {
+  display: block;
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.fabric-config-chip small,
+.fabric-config-empty {
   display: block;
   color: var(--muted);
   font-size: 13px;
-}
-
-.fabric-copy strong {
-  display: block;
-  margin-top: 5px;
-  font-size: 17px;
-  line-height: 1.35;
-  overflow-wrap: anywhere;
+  line-height: 1.25;
 }
 
 .fabric-stats {

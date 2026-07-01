@@ -488,6 +488,7 @@ function renderNodeSummary(nodeId: string, node: NodeSnapshot | null) {
 }
 
 function renderFabric(snapshot: ClusterSnapshot) {
+  const configItems = fabricConfigItems(snapshot);
   const nodeCards = snapshot.nodes
     .map(
       (node) => `
@@ -515,9 +516,14 @@ function renderFabric(snapshot: ClusterSnapshot) {
     .join("");
   fabricBand.innerHTML = `
     <div class="fabric-copy">
-      <div>
-        <span>Cluster fabric</span>
-        <strong>${escapeHtml(summarizeCluster(snapshot))}</strong>
+      <div class="fabric-config">
+        <div class="fabric-title">
+          <span class="fabric-kicker">Cluster fabric</span>
+          <strong>${escapeHtml(fabricConfigSummary(snapshot, configItems))}</strong>
+        </div>
+        <div class="fabric-config-chips">
+          ${renderFabricConfigChips(configItems)}
+        </div>
       </div>
       <div class="fabric-stats">
         <span>${snapshot.totals.online_node_count}/${snapshot.totals.node_count} online</span>
@@ -764,43 +770,68 @@ function fmtLatency(node: NodeSnapshot) {
   return `${Math.max(0, (node.received_at - node.sampled_at) * 1000).toFixed(0)} ms`;
 }
 
-function summarizeCluster(snapshot: ClusterSnapshot) {
+function fabricConfigSummary(snapshot: ClusterSnapshot, items: FabricConfigItem[]) {
   if (!snapshot.nodes.length) {
     return "No nodes connected";
   }
-  const hardware = flattenHardwareGpus(snapshot);
-  if (hardware.length) {
-    const configs = new Map<string, { count: number; name: string; architecture: string | null }>();
-    for (const gpu of hardware) {
-      const name = compactGpuName(gpu.name);
-      const architecture = gpu.architecture || null;
-      const key = `${name}\u0000${architecture || ""}`;
-      const config = configs.get(key);
-      if (config) {
-        config.count += 1;
-      } else {
-        configs.set(key, { count: 1, name, architecture });
-      }
-    }
-    const label = Array.from(configs.values())
-      .map(({ count, name, architecture }) => `${count}x ${name}${architecture ? ` (${architecture})` : ""}`)
-      .join(" · ");
-    if (label) {
-      return label;
-    }
+  if (!items.length) {
+    return `${snapshot.nodes.length} nodes`;
   }
-  const models = new Map<string, number>();
-  for (const { gpu } of flattenGpus(snapshot)) {
-    models.set(gpu.name, (models.get(gpu.name) || 0) + 1);
+  const architectureCount = new Set(items.map((item) => item.architecture).filter(Boolean)).size;
+  const parts = [
+    `${snapshot.totals.gpu_count} GPUs`,
+    `${items.length} GPU ${items.length === 1 ? "type" : "types"}`,
+  ];
+  if (architectureCount) {
+    parts.push(`${architectureCount} ${architectureCount === 1 ? "architecture" : "architectures"}`);
   }
-  const modelLabel = Array.from(models.entries())
-    .map(([name, count]) => `${count}x ${name.replace(/^NVIDIA\s+/, "")}`)
-    .join(" · ");
-  return modelLabel || `${snapshot.nodes.length} nodes`;
+  return parts.join(" · ");
 }
 
-function flattenHardwareGpus(snapshot: ClusterSnapshot) {
-  return snapshot.nodes.flatMap((node) => node.hardware?.gpus || []);
+type FabricConfigItem = {
+  count: number;
+  name: string;
+  architecture: string | null;
+};
+
+function fabricConfigItems(snapshot: ClusterSnapshot): FabricConfigItem[] {
+  const source = snapshot.nodes.flatMap((node) => {
+    if (node.hardware?.gpus.length) {
+      return node.hardware.gpus.map((gpu) => ({ name: gpu.name, architecture: gpu.architecture || null }));
+    }
+    return node.gpus.map((gpu) => ({ name: gpu.name, architecture: null }));
+  });
+  const configs = new Map<string, FabricConfigItem>();
+  for (const gpu of source) {
+    const name = compactGpuName(gpu.name);
+    const key = `${name}\u0000${gpu.architecture || ""}`;
+    const config = configs.get(key);
+    if (config) {
+      config.count += 1;
+    } else {
+      configs.set(key, { count: 1, name, architecture: gpu.architecture });
+    }
+  }
+  return Array.from(configs.values()).sort((left, right) => right.count - left.count || left.name.localeCompare(right.name));
+}
+
+function renderFabricConfigChips(items: FabricConfigItem[]) {
+  if (!items.length) {
+    return `<span class="fabric-config-empty">waiting for GPU inventory</span>`;
+  }
+  return items
+    .map(
+      (item) => `
+        <span class="fabric-config-chip">
+          <b>${item.count} ×</b>
+          <span>
+            <strong>${escapeHtml(item.name)}</strong>
+            ${item.architecture ? `<small>${escapeHtml(item.architecture)}</small>` : ""}
+          </span>
+        </span>
+      `,
+    )
+    .join("");
 }
 
 function setLiveState(state: "connecting" | "live" | "paused" | "offline" | "error") {
