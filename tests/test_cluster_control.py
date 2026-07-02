@@ -116,7 +116,8 @@ def test_render_agent_env_and_start_script_use_home_expansion(tmp_path) -> None:
 
     assert "CONSTELLA_AGENT_STATE_FILE=$HOME/.constella/run/agent-state.json" in env
     assert "BASE=$HOME/.constella" in script
-    assert "python3 not found" in script
+    assert "$HOME/miniconda3/bin/python3" in script
+    assert "python >= 3.10 not found" in script
     assert "PYTHONPATH=\"$RUNTIME\"" in script
     assert "-m constella.agent_main" in script
     assert "uv run" not in script

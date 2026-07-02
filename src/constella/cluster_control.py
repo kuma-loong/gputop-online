@@ -392,19 +392,39 @@ if [ ! -d "$RUNTIME/constella" ]; then
   exit 1
 fi
 
-if command -v python3 >/dev/null 2>&1; then
-  PYTHON_BIN="$(command -v python3)"
-else
-  echo "python3 not found" >&2
-  exit 1
-fi
+PYTHON_BIN=""
+for candidate in \
+  python3 \
+  python \
+  "$HOME/miniconda3/bin/python3" \
+  "$HOME/miniconda3/bin/python" \
+  "$HOME/anaconda3/bin/python3" \
+  "$HOME/anaconda3/bin/python" \
+  "$HOME/.conda/bin/python3" \
+  "$HOME/.conda/bin/python" \
+  "$HOME/.local/bin/python3" \
+  "$HOME/.local/bin/python"
+do
+  if command -v "$candidate" >/dev/null 2>&1; then
+    PYTHON_BIN="$(command -v "$candidate")"
+  elif [ -x "$candidate" ]; then
+    PYTHON_BIN="$candidate"
+  else
+    continue
+  fi
 
-if ! "$PYTHON_BIN" - <<'PY' >/dev/null 2>&1
+  if "$PYTHON_BIN" - <<'PY' >/dev/null 2>&1
 import sys
 raise SystemExit(0 if sys.version_info >= (3, 10) else 1)
 PY
-then
-  echo "python3 >= 3.10 is required" >&2
+  then
+    break
+  fi
+  PYTHON_BIN=""
+done
+
+if [ -z "$PYTHON_BIN" ]; then
+  echo "python >= 3.10 not found" >&2
   exit 1
 fi
 
